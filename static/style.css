@@ -94,6 +94,15 @@ a { color: var(--cyan); text-decoration: none; }
 .chk { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--dim); cursor: pointer; }
 .mode-switch { display: flex; gap: 14px; margin-right: 6px; }
 
+/* 定时采集计划表单 */
+.sched-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+.sched-row input[type=text], .sched-row input[type=number], .sched-row input[type=time] {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 11px; font-size: 13px; outline: none;
+  color-scheme: dark;
+}
+.sched-row input:focus { border-color: var(--cyan); }
+
 /* 按钮 */
 .btn {
   border: 1px solid var(--line); background: var(--panel-2); color: var(--text);

@@ -8,15 +8,15 @@
 
 <form class="card filter-bar" method="get" action="/trend">
   <select name="bvid" id="bvid">
-    {% for r in top %}
-    <option value="{{ r.bvid }}" {{ 'selected' if sel == r.bvid }}>{{ r.account }} · {{ r.title[:40] }} ({{ fmt_num(r.latest_view) }})</option>
+    {% for r in options %}
+    <option value="{{ r.bvid }}" {{ 'selected' if sel == r.bvid }}>{{ r.created_at[:10] if r.created_at else '—' }} · {{ r.account }} · {{ r.title[:36] }} ({{ fmt_num(r.latest_view) }})</option>
     {% endfor %}
   </select>
   <span class="dim">对比</span>
   <select name="bvid2" id="bvid2">
     <option value="">（不对比）</option>
-    {% for r in top %}
-    <option value="{{ r.bvid }}" {{ 'selected' if sel2 == r.bvid }}>{{ r.account }} · {{ r.title[:40] }}</option>
+    {% for r in options %}
+    <option value="{{ r.bvid }}" {{ 'selected' if sel2 == r.bvid }}>{{ r.created_at[:10] if r.created_at else '—' }} · {{ r.account }} · {{ r.title[:36] }}</option>
     {% endfor %}
   </select>
   <button class="btn primary" type="submit">查看</button>

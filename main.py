@@ -134,7 +134,12 @@ def cmd_chart(args):
     db = Database(cfg["storage"]["db_path"])
     charts.setup_font(cfg["charts"].get("font"))
     rows = filters.apply_filters(db.videos_with_stats(), args)
-    kinds = ["weekly", "monthly"] if args.period == "both" else [args.period]
+    if args.period == "all":
+        kinds = ["daily", "weekly", "monthly"]
+    elif args.period == "both":
+        kinds = ["weekly", "monthly"]
+    else:
+        kinds = [args.period]
     for kind in kinds:
         if args.type == "dashboard":
             path = charts.make_dashboard(db, cfg, kind, rows)
@@ -296,7 +301,8 @@ def build_parser():
     pr.set_defaults(func=cmd_run)
 
     pc = sub.add_parser("chart", help="生成图表(支持筛选参数)")
-    pc.add_argument("--period", choices=["weekly", "monthly", "both"], default="both")
+    pc.add_argument("--period", choices=["daily", "weekly", "monthly", "both", "all"],
+                    default="both")
     pc.add_argument("--type", choices=["dashboard", "published", "gained", "top"],
                     default="dashboard")
     pc.add_argument("--periods-back", type=int, default=0, help="覆盖展示周期数")

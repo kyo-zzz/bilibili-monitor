@@ -27,7 +27,7 @@ DEFAULTS = {
     "storage": {"db_path": "data/monitor.db"},
     "charts": {
         "auto": True,
-        "periods": ["weekly", "monthly"],
+        "periods": ["daily", "weekly", "monthly"],
         "periods_back": 12,
         "top_n": 15,
         "output_dir": "output/charts",
@@ -81,7 +81,7 @@ storage:
 
 charts:
   auto: true                      # 每轮采集后自动重建图表
-  periods: [weekly, monthly]      # 自动生成的周期
+  periods: [daily, weekly, monthly]  # 自动生成的周期(日/周/月)
   periods_back: 12                # 图表展示最近N个周期
   top_n: 15                       # Top视频数量
   output_dir: output/charts

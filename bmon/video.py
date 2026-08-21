@@ -5,6 +5,7 @@ matplotlib 逐帧渲染 + imageio-ffmpeg 自带编码器输出 1920x1080 H.264 M
 """
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 
 import matplotlib
@@ -44,13 +45,18 @@ def _fade(i, n, fin=15, fout=10):
 
 
 def _short(s, width=13):
-    s = str(s).strip()
+    s = _strip_game(str(s).strip())
     out = ""
     for ch in s:
         if len(out) >= width:
             return out + "…"
         out += ch
     return out
+
+
+def _strip_game(s):
+    """去掉标题开头的《游戏名》前缀(可多个), 避免占用展示宽度."""
+    return re.sub(r"^(《[^》]*》[\s\-—·|]*)+", "", s).strip() or s
 
 
 # ---------- 数据准备 ----------

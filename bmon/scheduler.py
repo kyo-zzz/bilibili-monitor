@@ -17,9 +17,10 @@ log = logging.getLogger("bmon.scheduler")
 MAIN_PY = None  # run_scheduler 时由调用方注入项目根 main.py 路径
 
 DEFAULT_SCHEDULE = {
-    "enabled": True,
-    "times": ["21:30"],        # 每日固定采集时间点 HH:MM
-    "interval_minutes": 0,     # >0 时在下方时段内按间隔追加采集
+    "times_enabled": True,
+    "times": ["21:30"],        # 方式一: 每日固定采集时间点 HH:MM (可多个, 逗号分隔)
+    "interval_enabled": False,
+    "interval_minutes": 60,    # 方式二: 时段内每 N 分钟采集一次
     "window_start": "08:00",
     "window_end": "23:59",
 }
@@ -45,35 +46,46 @@ def load_schedule(cfg):
             sch.update(json.load(f))
     except Exception:
         pass
+    # 兼容旧格式: {enabled, interval_minutes>0 即视为开启间隔采集}
+    if "enabled" in sch and "times_enabled" not in sch:
+        sch["times_enabled"] = bool(sch.get("enabled"))
+    if "interval_enabled" not in sch:
+        sch["interval_enabled"] = int(sch.get("interval_minutes") or 0) > 0
     sch["times"] = [t for t in (sch.get("times") or []) if _parse_hhmm(t)]
     return sch
 
 
 def save_schedule(cfg, data):
-    """校验并保存计划; 返回 (ok, 错误信息)."""
+    """校验并保存计划; 返回 (ok, 错误信息). 两种方式各自独立启用."""
+    times_enabled = bool(data.get("times_enabled"))
+    interval_enabled = bool(data.get("interval_enabled"))
     times = []
-    for t in str(data.get("times") or "").replace("，", ",").split(","):
-        t = t.strip()
-        if not t:
-            continue
-        if not _parse_hhmm(t):
-            return False, f"时间点格式错误: {t} (应为 HH:MM, 如 21:30)"
-        times.append(datetime.strptime(t, "%H:%M").strftime("%H:%M"))
+    if times_enabled:
+        for t in str(data.get("times") or "").replace("，", ",").split(","):
+            t = t.strip()
+            if not t:
+                continue
+            if not _parse_hhmm(t):
+                return False, f"时间点格式错误: {t} (应为 HH:MM, 如 21:30; 多个用英文逗号隔开)"
+            times.append(datetime.strptime(t, "%H:%M").strftime("%H:%M"))
+        if not times:
+            return False, "已启用每日时间点采集, 请至少填写一个时间点 (如 21:30)"
     try:
         interval = max(0, int(data.get("interval_minutes") or 0))
     except (TypeError, ValueError):
         return False, "采集间隔应为非负整数(分钟)"
     win_s = str(data.get("window_start") or "00:00").strip() or "00:00"
     win_e = str(data.get("window_end") or "23:59").strip() or "23:59"
-    for w in (win_s, win_e):
-        if not _parse_hhmm(w):
-            return False, f"时段格式错误: {w} (应为 HH:MM)"
-    if interval > 0 and win_s >= win_e:
-        return False, "按间隔采集时, 时段起点必须早于终点"
-    if not times and interval <= 0:
-        return False, "请至少填写一个采集时间点, 或设置间隔采集"
-    sch = {"enabled": bool(data.get("enabled")), "times": sorted(set(times)),
-           "interval_minutes": interval,
+    if interval_enabled:
+        for w in (win_s, win_e):
+            if not _parse_hhmm(w):
+                return False, f"时段格式错误: {w} (应为 HH:MM)"
+        if interval <= 0:
+            return False, "已启用间隔采集, 间隔分钟数需大于 0"
+        if win_s >= win_e:
+            return False, "间隔采集的时段起点必须早于终点"
+    sch = {"times_enabled": times_enabled, "times": sorted(set(times)),
+           "interval_enabled": interval_enabled, "interval_minutes": interval,
            "window_start": win_s, "window_end": win_e}
     os.makedirs(_data_dir(cfg), exist_ok=True)
     with open(schedule_path(cfg), "w", encoding="utf-8") as f:
@@ -112,16 +124,17 @@ def next_runs(sch, now=None, count=4):
     out = []
     base = now.replace(second=0, microsecond=0)
     # 固定时间点: 今天剩余 + 明天
-    for day_off in (0, 1):
-        day = (base + timedelta(days=day_off)).replace(hour=0, minute=0)
-        for t in sch.get("times", []):
-            hm = _parse_hhmm(t)
-            cand = day.replace(hour=hm.hour, minute=hm.minute)
-            if cand > now:
-                out.append(cand)
+    if sch.get("times_enabled", True):
+        for day_off in (0, 1):
+            day = (base + timedelta(days=day_off)).replace(hour=0, minute=0)
+            for t in sch.get("times", []):
+                hm = _parse_hhmm(t)
+                cand = day.replace(hour=hm.hour, minute=hm.minute)
+                if cand > now:
+                    out.append(cand)
     # 间隔模式: 从窗口起点逐间隔推演(最多2天)
     interval = int(sch.get("interval_minutes") or 0)
-    if interval > 0:
+    if interval > 0 and sch.get("interval_enabled"):
         ws, we = _parse_hhmm(sch.get("window_start", "00:00")), \
                  _parse_hhmm(sch.get("window_end", "23:59"))
         for day_off in (0, 1):
@@ -162,19 +175,19 @@ class Scheduler:
         if self.last_run and (now - self.last_run).total_seconds() < MIN_GAP_SECONDS:
             return
         sch = load_schedule(self.cfg)
-        if not sch.get("enabled"):
-            return
         state = _load_state(self.cfg)
         reason = None
         hm = now.strftime("%H:%M")
         today = now.strftime("%Y-%m-%d")
         fired_today = state.get("fired", {}).get(today, [])
-        for t in sch.get("times", []):
-            if t == hm and t not in fired_today:
-                reason = f"定时时间点 {t}"
-                fired_today.append(t)
-                break
-        if reason is None and int(sch.get("interval_minutes") or 0) > 0:
+        if sch.get("times_enabled", True):
+            for t in sch.get("times", []):
+                if t == hm and t not in fired_today:
+                    reason = f"定时时间点 {t}"
+                    fired_today.append(t)
+                    break
+        if reason is None and sch.get("interval_enabled") \
+                and int(sch.get("interval_minutes") or 0) > 0:
             ws = _parse_hhmm(sch.get("window_start", "00:00"))
             we = _parse_hhmm(sch.get("window_end", "23:59"))
             cur = now.hour * 60 + now.minute

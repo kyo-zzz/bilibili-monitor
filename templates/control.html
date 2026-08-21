@@ -12,6 +12,9 @@
   <div class="card stat">
     <div class="stat-label">最近一轮采集</div>
     <div class="stat-value sm">{{ state.get('last_cycle_at', '—') }}</div>
+    {% if state.get('accounts') %}
+    <div class="dim">{% for a in state['accounts'] %}{{ a.label }} 快照{{ a.snapshots }}条{{ ' · ' if not loop.last }}{% endfor %}</div>
+    {% endif %}
   </div>
   <div class="card stat">
     <div class="stat-label">库内数据</div>
@@ -22,21 +25,31 @@
 <div class="card">
   <div class="card-title">定时采集计划 <span class="dim">（保存后立即生效，无需重启）</span></div>
   {% if sched_err %}<div class="alert" style="margin-bottom:12px">{{ sched_err }}</div>{% endif %}
-  <form method="post" action="/control/schedule" class="filter-bar">
-    <label class="chk"><input type="checkbox" name="enabled" {{ 'checked' if schedule.enabled }}> 启用定时采集</label>
-    <span class="dim">每日时间点</span>
-    <input type="text" name="times" value="{{ schedule.times|join(', ') }}" placeholder="如 08:30, 21:30" style="min-width:190px">
-    <span class="dim">间隔采集 每</span>
-    <input type="number" name="interval_minutes" value="{{ schedule.interval_minutes }}" min="0" style="width:86px" title="0 = 关闭间隔采集">
-    <span class="dim">分钟，时段</span>
-    <input type="time" name="window_start" value="{{ schedule.window_start }}">
-    <span class="dim">~</span>
-    <input type="time" name="window_end" value="{{ schedule.window_end }}">
-    <button class="btn primary" type="submit">保存计划</button>
+  <form method="post" action="/control/schedule">
+    <div class="sched-row">
+      <label class="chk"><input type="checkbox" name="times_enabled" {{ 'checked' if schedule.times_enabled }}> 方式一 · 每日固定时间点采集</label>
+      <input type="text" name="times" value="{{ schedule.times|join(', ') }}" placeholder="如 08:30, 21:30" style="min-width:230px">
+      <span class="dim">可填多个时间点，用英文逗号隔开</span>
+    </div>
+    <div class="sched-row">
+      <label class="chk"><input type="checkbox" name="interval_enabled" {{ 'checked' if schedule.interval_enabled }}> 方式二 · 时段内按间隔采集</label>
+      <span class="dim">每</span>
+      <input type="number" name="interval_minutes" value="{{ schedule.interval_minutes }}" min="0" style="width:86px">
+      <span class="dim">分钟采集一次，时段</span>
+      <input type="time" name="window_start" value="{{ schedule.window_start }}">
+      <span class="dim">~</span>
+      <input type="time" name="window_end" value="{{ schedule.window_end }}">
+    </div>
+    <div class="sched-row">
+      <button class="btn primary" type="submit">保存计划</button>
+      {% if not schedule.times_enabled and not schedule.interval_enabled %}
+      <span class="dim">两种方式均未启用，定时采集不会运行</span>
+      {% endif %}
+    </div>
   </form>
   <div class="dim note">
-    {% if schedule.enabled %}
-      接下来触发：{{ next_runs|join(' · ') if next_runs else '—' }}
+    {% if next_runs %}
+      接下来触发：{{ next_runs|join(' · ') }}
       {% if sched_last %} · 最近一次调度采集：{{ sched_last }}{% if sched_reason %}（{{ sched_reason }}）{% endif %}{% endif %}
     {% else %}
       定时采集已停用；可随时手动点击下方按钮采集。
@@ -70,7 +83,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">运行日志（最近 40 行）</div>
+  <div class="card-title">运行日志（最近 80 行，含每轮采集明细汇总）</div>
   <pre class="log">{{ log_tail }}</pre>
 </div>
 

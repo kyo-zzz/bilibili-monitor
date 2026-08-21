@@ -61,7 +61,12 @@ def build_periods(kind, n, now=None):
     now = now or datetime.now()
     n = max(1, int(n))
     periods = []
-    if kind == "weekly":
+    if kind == "daily":
+        cur = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        for i in range(n - 1, -1, -1):
+            s = cur - timedelta(days=i)
+            periods.append((s.strftime("%m-%d"), s, s + timedelta(days=1)))
+    elif kind == "weekly":
         cur = week_start(now)
         for i in range(n - 1, -1, -1):
             s = cur - timedelta(weeks=i)
@@ -301,7 +306,7 @@ def make_dashboard(db, cfg, kind, rows):
     win_start = periods[0][1]
     win_rows = [r for r in rows if r.get("created_ts")
                 and datetime.fromtimestamp(r["created_ts"]) >= win_start]
-    unit = "周" if kind == "weekly" else "个月"
+    unit = {"daily": "日", "weekly": "周", "monthly": "个月"}[kind]
 
     fig, axes = plt.subplots(2, 2, figsize=(17.5, 13), dpi=140)
     fig.patch.set_facecolor("white")
@@ -341,7 +346,7 @@ def make_single(db, cfg, kind, ctype, rows):
     periods = build_periods(kind, n_back)
     period_labels = [p[0] for p in periods]
     ordered, labels, colors = account_style(cfg, rows)
-    unit = "周" if kind == "weekly" else "个月"
+    unit = {"daily": "日", "weekly": "周", "monthly": "个月"}[kind]
 
     if ctype in ("published", "gained"):
         fig, ax = plt.subplots(figsize=(14.5, 7.5), dpi=140)

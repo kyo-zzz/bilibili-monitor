@@ -139,11 +139,13 @@ def create_app(cfg):
         con.close()
         top = sorted([r for r in all_rows if r.get("latest_view") is not None],
                      key=lambda r: r["latest_view"], reverse=True)[:300]
+        options = sorted([r for r in all_rows if r.get("created_ts")],
+                         key=lambda r: r["created_ts"], reverse=True)[:500]
         sel = request.args.get("bvid") or (top[0]["bvid"] if top else "")
         sel2 = request.args.get("bvid2") or ""
         info = next((r for r in all_rows if r.get("bvid") == sel), None)
         info2 = next((r for r in all_rows if r.get("bvid") == sel2), None)
-        return render_template("trend.html", top=top, sel=sel, sel2=sel2,
+        return render_template("trend.html", options=options, sel=sel, sel2=sel2,
                                info=info, info2=info2)
 
     @app.route("/api/trend")
@@ -240,7 +242,7 @@ def create_app(cfg):
         schedule = schedmod.load_schedule(cfg)
         return render_template("control.html", state=state, running=running,
                                cursors=cursors,
-                               log_tail=_tail(cfg["logging"].get("file"), 40),
+                               log_tail=_tail(cfg["logging"].get("file"), 80),
                                schedule=schedule,
                                next_runs=[d.strftime("%m-%d %H:%M") for d in
                                           schedmod.next_runs(schedule)],
@@ -252,8 +254,9 @@ def create_app(cfg):
     @app.route("/control/schedule", methods=["POST"])
     def control_schedule():
         ok, err = schedmod.save_schedule(cfg, {
-            "enabled": request.form.get("enabled") == "on",
+            "times_enabled": request.form.get("times_enabled") == "on",
             "times": request.form.get("times") or "",
+            "interval_enabled": request.form.get("interval_enabled") == "on",
             "interval_minutes": request.form.get("interval_minutes") or 0,
             "window_start": request.form.get("window_start") or "",
             "window_end": request.form.get("window_end") or "",
@@ -267,7 +270,7 @@ def create_app(cfg):
     def control_run():
         action = request.form.get("action")
         cmds = {"fetch": ["fetch"],
-                "chart": ["chart", "--period", "both", "--type", "dashboard"],
+                "chart": ["chart", "--period", "all", "--type", "dashboard"],
                 "full": ["fetch", "--full"]}
         if action not in cmds:
             abort(400)

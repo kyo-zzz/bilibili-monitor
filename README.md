@@ -85,7 +85,7 @@ python main.py gui --port 9000 --no-browser
 | 播放趋势 | 任选 1-2 个视频，ECharts 播放量/点赞趋势曲线对比 |
 | 快照查询 | 任意时刻/时段的历史播放量，见下节 |
 | 运行控制 | 一键立即采集/重建图表/深度回填历史，实时查看运行日志 |
-| 定时采集计划 | 每日时间点 + 时段内按间隔采集，保存后立即生效，无需重启 |
+| 定时采集计划 | 两种方式各自勾选：每日时间点(可多个) / 时段内按间隔，保存立即生效 |
 
 ![Web GUI 视频筛选](docs/screenshots/webui_videos.png)
 
@@ -105,11 +105,10 @@ Web GUI 的「快照查询」页提供同样的能力（时刻/时段切换、�
 
 ## 定时采集（Web GUI 可配置）
 
-打开 Web GUI 的「运行控制」页，在"定时采集计划"卡片中设置：
+打开 Web GUI 的「运行控制」页，在"定时采集计划"卡片中设置，两种方式各自勾选启用：
 
-- **每日时间点**：如 `08:30, 21:30`（逗号分隔，可多个）
-- **间隔采集**：每 N 分钟一次，限定在指定时段内（0 = 关闭）
-- **启用开关**：随时停用
+- **方式一 · 每日固定时间点**：如 `08:30, 21:30`（可多个，英文逗号隔开）
+- **方式二 · 时段内按间隔**：每 N 分钟一次，限定在指定起止时段内
 
 保存后立即生效（计划存于 `data/schedule.json`，调度循环实时重读）。
 GUI 进程运行期间自动按计划采集；若需不开 GUI 也调度，
@@ -172,12 +171,14 @@ schtasks /Delete /TN BiliMonDailyFetch /F              # 删除定时任务
 
 ```bash
 python main.py chart --period weekly --type dashboard   # 周报仪表盘(默认 both+dashboard)
+python main.py chart --period daily --type dashboard    # 日报仪表盘(最近12天)
+python main.py chart --period all                       # 日+周+月全部重建
 python main.py chart --period monthly --type gained     # 月度播放增量柱状图
 python main.py chart --period weekly --type top         # 近N周发布视频累计播放Top
 python main.py chart --account 原神 --keyword PV        # 只对筛选后的视频出图
 ```
 
-- `--period`: `weekly` / `monthly` / `both`
+- `--period`: `daily` / `weekly` / `monthly` / `both`(周+月) / `all`(日+周+月)
 - `--type`: `dashboard`(四宫格: 每期发布数 / 每期播放增量 / 累计播放Top / 本期增长Top)
   `published` / `gained` / `top` 单图
 - `--periods-back N`: 展示最近 N 个周期（默认取配置 12）
