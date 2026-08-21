@@ -95,7 +95,7 @@ def collect(db, cfg, ts_from, ts_to):
             "growth": max(0, pts[-1][1] - pts[0][1]),
         })
 
-    trend = sorted([it for it in items if it["end"]],
+    trend = sorted([it for it in items if it["end"] and it["growth"] > 0],
                    key=lambda x: -x["end"])[:8]
     tops = sorted([it for it in items if it["growth"] > 0],
                   key=lambda x: -x["growth"])[:10]
@@ -171,7 +171,7 @@ def _sc_overview(fig, i, n, data):
 def _sc_trend(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _scene_title(ax, "播放量走势", "监测期内 Top8 视频 · 快照连线", alpha=a)
+    _scene_title(ax, "播放量走势", "监测期内变化最显著的 Top8 视频 · 快照折线", alpha=a)
     trend = data["trend"]
     if not trend:
         ax.text(0.5, 0.45, "本期暂无趋势数据", fontsize=20, color=DIM,
@@ -204,16 +204,17 @@ def _sc_trend(fig, i, n, data):
                 fontsize=10.5, color=DIM, ha="right", va="center", alpha=a)
         ax.plot([x0, x1], [vy(vmax * frac)] * 2, color="#1d222b", lw=1, alpha=a)
 
-    # 曲线随时间生长
+    # 曲线随时间生长(折线连接快照点)
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
     for it in trend:
         pts = [(t, v) for t, v in it["pts"] if t <= sweep]
         if len(pts) < 1:
             continue
         xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
-        ax.plot(xs, ys, color=it["color"], lw=2.2, alpha=a * 0.95,
-                solid_capstyle="round")
-        ax.plot(xs[-1], ys[-1], "o", color=it["color"], ms=5.5, alpha=a)
+        ax.plot(xs, ys, color=it["color"], lw=3.0, alpha=a * 0.95,
+                marker="o", ms=5.5, markerfacecolor=it["color"],
+                markeredgecolor=BG, markeredgewidth=0.8,
+                solid_capstyle="round", zorder=3)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.5)
@@ -231,37 +232,77 @@ def _sc_trend(fig, i, n, data):
                 fontweight="bold", alpha=a, transform=ax.transAxes)
 
 
+def _interp_value(pts, t):
+    """快照序列在时刻 t 的线性插值(用于逐日变化的平滑动画)."""
+    if t <= pts[0][0]:
+        return pts[0][1]
+    for (ta, va), (tb, vb) in zip(pts, pts[1:]):
+        if t <= tb:
+            span = (tb - ta).total_seconds() or 1.0
+            return va + (vb - va) * (t - ta).total_seconds() / span
+    return pts[-1][1]
+
+
+def _race_timeline(data, n):
+    """预计算条形竞跑时间轴: 每帧各视频的累计增量、排名与平滑后的纵向位置."""
+    tops = data["tops"]
+    t0 = datetime.strptime(data["ts_from"], TSFMT)
+    t1 = datetime.strptime(data["ts_to"], TSFMT)
+    if t1 <= t0:
+        t1 = t0 + timedelta(days=1)
+    hold = 12
+    sweep = max(1, n - hold * 2)
+    top_y, bot_y = 0.80, 0.12
+    step = (top_y - bot_y) / len(tops)
+    frames, ys = [], None
+    for i in range(n):
+        p = 0.0 if i < hold else (1.0 if i >= n - hold else (i - hold) / sweep)
+        t = t0 + (t1 - t0) * p
+        vals = sorted(((it, _interp_value(it["pts"], t)) for it in tops),
+                      key=lambda x: -x[1])
+        target = {it["bvid"]: top_y - (rank + 0.5) * step
+                  for rank, (it, _) in enumerate(vals)}
+        if ys is None:
+            ys = dict(target)
+        else:
+            for k in ys:
+                ys[k] += (target[k] - ys[k]) * 0.28
+        frames.append({"t": t, "vals": vals, "ys": dict(ys)})
+    return frames
+
+
 def _sc_bars(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _scene_title(ax, "本期播放增量 Top10", "期末快照 − 期初快照", alpha=a)
+    _scene_title(ax, "本期播放增量 Top10", "逐日播放变化 · 条形竞跑", alpha=a)
     tops = data["tops"]
     if not tops:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=20, color=DIM,
                 ha="center", alpha=a)
         return
+    race = data.get("_race")
+    if race is None:
+        race = data["_race"] = _race_timeline(data, n)
+    fr = race[min(i, len(race) - 1)]
     vmax = tops[0]["growth"] or 1
-    m = len(tops)
-    top_y, bot_y, left, right = 0.82, 0.10, 0.34, 0.90
-    step = (top_y - bot_y) / m
-    for k, it in enumerate(tops):
-        pi = _ease((i / max(1, n - 25) - k * 0.045) / 0.55)
-        if pi <= 0:
-            continue
-        y = top_y - (k + 0.5) * step
-        w = (right - left) * it["growth"] / vmax * pi
+    left, right = 0.34, 0.88
+    step = (0.80 - 0.12) / len(tops)
+    ax.text(0.925, 0.5, fr["t"].strftime("%m-%d"), fontsize=34, color="#1d222b",
+            ha="center", va="center", fontweight="bold", alpha=a,
+            transform=ax.transAxes, zorder=1)
+    for rank, (it, v) in enumerate(fr["vals"]):
+        y = fr["ys"][it["bvid"]]
+        w = max(0.0001, (right - left) * v / vmax)
         ax.add_patch(plt.Rectangle((left, y - step * 0.30), w, step * 0.60,
                                    facecolor=it["color"], edgecolor="none",
-                                   alpha=a * 0.92, transform=ax.transAxes))
-        ax.text(left - 0.015, y, f"{k + 1:02d}", fontsize=12, color=DIM,
-                ha="right", va="center", alpha=a, transform=ax.transAxes)
+                                   alpha=a * 0.92, transform=ax.transAxes, zorder=3))
         ax.text(left - 0.045, y, _short(it["title"], 13), fontsize=11.5,
                 color=TEXT, ha="right", va="center", alpha=a,
-                transform=ax.transAxes)
-        ax.text(left + w + 0.012, y, fmt_num(int(it["growth"] * pi)),
-                fontsize=12, color=GOLD if k < 3 else TEXT, va="center",
-                fontweight="bold" if k < 3 else "normal", alpha=a,
-                transform=ax.transAxes)
+                transform=ax.transAxes, zorder=3)
+        ax.text(left + w + 0.012, y, fmt_num(int(v)),
+                fontsize=12, color=GOLD if rank < 3 else TEXT, va="center",
+                fontweight="bold" if rank < 3 else "normal", alpha=a,
+                transform=ax.transAxes, zorder=3)
     # 图例
     seen, lx = [], 0.34
     for it in tops:
