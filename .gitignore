@@ -1,0 +1,9 @@
+.venv/
+data/
+output/
+__pycache__/
+*.pyc
+# 个人配置含 cookie 等敏感字段, 不入库; 首次使用复制 config.example.yaml
+config.yaml
+# 无关截图
+运行截图.png

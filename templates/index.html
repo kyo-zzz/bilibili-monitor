@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}总览{% endblock %}
+{% block content %}
+<h1 class="page-title">总览</h1>
+
+<div class="cards">
+  <div class="card stat">
+    <div class="stat-label">监测视频</div>
+    <div class="stat-value">{{ videos_total }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">累计播放(最新快照)</div>
+    <div class="stat-value">{{ fmt_num(views_total) }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">监测以来播放增量</div>
+    <div class="stat-value up">+{{ fmt_num(growth_total) }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">最近采集</div>
+    <div class="stat-value sm">{{ state.get('last_cycle_at', '—') }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">账号概况</div>
+  <div class="acc-grid">
+    {% for p in per %}
+    <div class="acc-item">
+      <span class="dot" style="background:{{ p.color }}"></span>
+      <span class="acc-name">{{ p.name }}</span>
+      <span class="acc-meta">{{ p.videos }} 个视频 · {{ fmt_num(p.views) }} 播放 · <span class="up">+{{ fmt_num(p.growth) }}</span></span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">自动生成的图表 <span class="dim">（每天采集后自动更新 · 更高清原图见 output/charts/index.html）</span></div>
+  {% if chart_files %}
+  <div class="chart-list">
+    {% for f in chart_files %}
+    <figure>
+      <img src="/charts/{{ f }}" loading="lazy" alt="{{ f }}">
+      <figcaption>{{ f[:-4] | replace('_', ' · ') }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">暂无图表，请先在「运行控制」执行一次采集</div>
+  {% endif %}
+</div>
+{% endblock %}

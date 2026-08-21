@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}播放趋势{% endblock %}
+{% block head %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">播放趋势</h1>
+
+<form class="card filter-bar" method="get" action="/trend">
+  <select name="bvid" id="bvid">
+    {% for r in top %}
+    <option value="{{ r.bvid }}" {{ 'selected' if sel == r.bvid }}>{{ r.account }} · {{ r.title[:40] }} ({{ fmt_num(r.latest_view) }})</option>
+    {% endfor %}
+  </select>
+  <span class="dim">对比</span>
+  <select name="bvid2" id="bvid2">
+    <option value="">（不对比）</option>
+    {% for r in top %}
+    <option value="{{ r.bvid }}" {{ 'selected' if sel2 == r.bvid }}>{{ r.account }} · {{ r.title[:40] }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn primary" type="submit">查看</button>
+</form>
+
+{% if info %}
+<div class="cards">
+  <div class="card stat">
+    <div class="stat-label">视频</div>
+    <div class="stat-value sm" style="font-size:16px;line-height:1.5">{{ info.title }}</div>
+    <div class="dim">{{ info.account }} · {{ info.created_at[:16] if info.created_at }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">最新播放</div>
+    <div class="stat-value">{{ fmt_num(info.latest_view) }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">监测以来增长</div>
+    <div class="stat-value up">+{{ fmt_num(growth_of(info) or 0) }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">点赞</div>
+    <div class="stat-value">{{ fmt_num(info.latest_likes) }}</div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">播放量走势（快照累计）</div>
+  <div id="chart" style="height:420px"></div>
+  <div class="dim note">提示：数据点密度取决于采集频率（每日定时一轮；也可在「运行控制」手动补采）。</div>
+</div>
+
+<script>
+const b1 = new URLSearchParams(location.search).get('bvid') || '{{ sel }}';
+const b2 = new URLSearchParams(location.search).get('bvid2') || '';
+const chart = echarts.init(document.getElementById('chart'));
+chart.showLoading();
+fetch('/api/trend?bvid=' + encodeURIComponent(b1) + (b2 ? '&bvid2=' + encodeURIComponent(b2) : ''))
+  .then(r => r.json())
+  .then(series => {
+    chart.hideLoading();
+    chart.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, textStyle: { color: '#8892a6' } },
+      grid: { left: 70, right: 30, top: 40, bottom: 50 },
+      xAxis: { type: 'category', data: (series[0] ? series[0].points.map(p => p[0]) : []),
+               axisLabel: { color: '#8892a6', rotate: 30 } },
+      yAxis: { type: 'value', axisLabel: { color: '#8892a6',
+                formatter: v => v >= 1e8 ? (v/1e8).toFixed(1)+'亿' : v >= 1e4 ? (v/1e4).toFixed(0)+'万' : v },
+               splitLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18, bottom: 8 }],
+      color: ['#00A1D6', '#F25D8E'],
+      series: series.map(s => ({
+        name: s.name, type: 'line', smooth: true, symbol: 'none',
+        areaStyle: { opacity: .12 }, lineStyle: { width: 2.5 },
+        data: s.points.map(p => p[1])
+      }))
+    });
+  });
+window.addEventListener('resize', () => chart.resize());
+</script>
+{% endblock %}

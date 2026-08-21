@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}快照查询{% endblock %}
+{% block content %}
+<h1 class="page-title">快照查询 <span class="dim">选择任意时刻或时段，查看当时的播放量</span></h1>
+
+<form class="card filter-bar snapshot-form" method="get" action="/snapshot">
+  <div class="mode-switch">
+    <label class="chk"><input type="radio" name="mode" value="single" {{ 'checked' if mode != 'range' }} onchange="this.form.submit()">指定时刻</label>
+    <label class="chk"><input type="radio" name="mode" value="range" {{ 'checked' if mode == 'range' }} onchange="this.form.submit()">时段对比</label>
+  </div>
+  {% if mode == 'range' %}
+  <input type="datetime-local" name="from" value="{{ frm.replace(' ', 'T') if frm else '' }}" required>
+  <span class="dim">至</span>
+  <input type="datetime-local" name="to" value="{{ to.replace(' ', 'T') if to else '' }}" required>
+  {% else %}
+  <input type="datetime-local" name="at" value="{{ at.replace(' ', 'T') if at else '' }}">
+  {% endif %}
+  <select name="account">
+    <option value="">全部账号</option>
+    {% for a in accounts %}{% if a.get('mid') %}
+    <option value="{{ a['name'] }}" {{ 'selected' if cur.get('account') == a['name'] }}>{{ a['name'] }}</option>
+    {% endif %}{% endfor %}
+  </select>
+  <input type="text" name="keyword" placeholder="标题关键词" value="{{ cur.get('keyword','') }}">
+  <input type="number" name="min_views" placeholder="期末最低播放" value="{{ cur.get('min_views','') }}" style="width:130px">
+  <select name="sort">
+    {% for s, label in [('growth','按时段增量'),('views','按期末播放'),('pubdate','按发布时间'),('likes','按点赞')] %}
+    <option value="{{ s }}" {{ 'selected' if cur.get('sort','growth') == s }}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn primary" type="submit">查询</button>
+  <a class="btn ghost" href="/export/snapshot.csv?{{ request.query_string.decode() or '' }}">导出CSV</a>
+</form>
+
+{% if error %}
+<div class="card alert">{{ error }}</div>
+{% endif %}
+
+<div class="card table-card">
+  {% if mode == 'range' %}
+  <table>
+    <thead><tr><th>发布时间</th><th>账号</th><th class="t-title">标题</th>
+      <th class="num">期初播放</th><th class="num">期末播放</th><th class="num">时段增量</th><th>期末快照</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="dim">{{ r.created_at[:16] if r.created_at else '—' }}</td>
+        <td><span class="tag">{{ r.account }}</span></td>
+        <td class="t-title"><a href="/trend?bvid={{ r.bvid }}">{{ r.title }}</a></td>
+        <td class="num">{{ fmt_num(r.first_view) }}</td>
+        <td class="num strong">{{ fmt_num(r.latest_view) }}</td>
+        <td class="num up">{{ ('+' ~ fmt_num(growth_of(r))) if growth_of(r) is not none else '—' }}</td>
+        <td class="dim">{{ r.latest_ts }}</td>
+      </tr>
+    {% else %}<tr><td colspan="7" class="empty">该时段暂无数据</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <table>
+    <thead><tr><th>发布时间</th><th>账号</th><th class="t-title">标题</th>
+      <th class="num">该时刻播放</th><th>快照时间</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="dim">{{ r.created_at[:16] if r.created_at else '—' }}</td>
+        <td><span class="tag">{{ r.account }}</span></td>
+        <td class="t-title"><a href="/trend?bvid={{ r.bvid }}">{{ r.title }}</a></td>
+        <td class="num strong">{{ fmt_num(r.latest_view) }}</td>
+        <td class="dim">{{ r.latest_ts }}</td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty">该时刻暂无数据</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if rows|length >= 500 %}<div class="dim note">结果较多，仅显示前 500 条，可加筛选条件缩小范围</div>{% endif %}
+</div>
+{% endblock %}

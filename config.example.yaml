@@ -1,0 +1,55 @@
+# ============================================================
+#  B站官号视频播放量自动监测系统 配置模板 (YAML)
+#  首次使用: 复制本文件为 config.yaml 后按需修改
+#  (也可用 `python main.py init` 生成默认配置)
+#  - 相对路径均基于项目根目录; 修改后重启程序生效
+#  - 添加/更换账号: 复制一段 {mid, name}; mid 可用
+#    `python main.py find --keyword 账号名` 联网查询
+# ============================================================
+
+accounts:
+  - mid: 401742377          # 原神 (官方, 已核验)
+    name: 原神
+    enabled: true
+  - mid: 1340190821         # 崩坏星穹铁道 (官方, 已核验)
+    name: 崩坏星穹铁道
+    enabled: true
+  - mid: 1636034895         # 绝区零 (官方, 已核验)
+    name: 绝区零
+    enabled: true
+  # 仅监测指定视频(手动模式, 可选):
+  # - mid: 123456
+  #   name: 某账号
+  #   bvids: ["BV1xx411c7mD", "BV1ab411c7ba"]
+
+monitor:
+  interval_minutes: 60            # 自动监测间隔(分钟, 支持小数如 0.5)
+  request_interval_seconds: 2.5   # 相邻API请求最小间隔(限速; 建议>=2, 过小有风控风险)
+  backfill_pages: 0               # 首次抓取最多翻页数(每页50条, 0=不限制)
+  track_since_days: 0             # 仅收录最近N天发布的视频(0=全部历史; 仅arc通道生效)
+  active_days: 45                 # 仅对最近N天发布的视频逐周期采集指标(0=全部, 请求量大)
+  stats_mode: full                # basic=仅列表接口(播放/评论); full=逐视频详情(点赞/投币等)
+  listing_mode: auto              # 投稿清单通道: auto=arc优先/风控自动切动态流; 可强制 arc / feed
+  use_system_proxy: false         # 是否走系统代理(默认直连; 数据中心代理出口IP易被B站风控)
+  feed_page_interval_seconds: 5   # 动态流通道翻页间隔(该接口对频率敏感, 建议>=5)
+  meta_backfill_limit: 300        # 每轮为新发现视频回填详情的最大数量(0=不限)
+  timeout_seconds: 15
+  max_retries: 3
+  risk_control_wait_seconds: 30   # 触发风控(-352/412)后的冷却秒数
+  cookie: ""                      # 可选: 粘贴浏览器Cookie(含SESSDATA); 留空=游客模式(零账号风险)
+
+storage:
+  db_path: data/monitor.db
+
+charts:
+  auto: true                      # 每轮采集后自动重建图表
+  periods: [weekly, monthly]      # 自动生成的周期
+  periods_back: 12                # 图表展示最近N个周期
+  top_n: 15                       # Top视频数量
+  output_dir: output/charts
+  font: ""                        # 中文字体名; 留空自动探测(Windows: 微软雅黑)
+  auto_refresh_seconds: 300       # index.html 自动刷新秒数(0=关闭)
+
+logging:
+  level: INFO
+  file: data/monitor.log

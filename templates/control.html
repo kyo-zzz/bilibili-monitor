@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}运行控制{% endblock %}
+{% block content %}
+<h1 class="page-title">运行控制</h1>
+
+<div class="cards">
+  <div class="card stat">
+    <div class="stat-label">任务状态</div>
+    <div class="stat-value sm">{{ '● 采集中' if running else '● 空闲' }}</div>
+    <div class="dim">每天 21:30 计划任务自动采集</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">最近一轮采集</div>
+    <div class="stat-value sm">{{ state.get('last_cycle_at', '—') }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">库内数据</div>
+    <div class="stat-value sm">{{ state.get('videos_total', 0) }} 视频 · {{ state.get('snapshots_total', 0) }} 快照</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">手动操作</div>
+  <div class="btn-row">
+    <form method="post" action="/control/run" class="inline">
+      <input type="hidden" name="action" value="fetch">
+      <button class="btn primary" type="submit">立即采集一轮</button>
+    </form>
+    <form method="post" action="/control/run" class="inline">
+      <input type="hidden" name="action" value="chart">
+      <button class="btn" type="submit">重建图表</button>
+    </form>
+    <form method="post" action="/control/run" class="inline"
+          onsubmit="return confirm('深度回填会从上次游标继续向历史翻页，耗时约 10-25 分钟，确认执行？')">
+      <input type="hidden" name="action" value="full">
+      <button class="btn danger" type="submit">深度回填历史</button>
+    </form>
+  </div>
+  <div class="dim note">操作在后台子进程执行，点击后约需 5-10 分钟（深度回填更久），刷新本页可在下方日志查看进度。</div>
+  <div class="cursors">
+    {% for c in cursors %}
+    <span class="chip"><span class="dot" style="background:#7B5FFF"></span>{{ c.name }} 历史回填：{{ '游标已保存，可继续' if c.cursor else '已完成或未开始' }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">运行日志（最近 40 行）</div>
+  <pre class="log">{{ log_tail }}</pre>
+</div>
+
+<script>setTimeout(() => location.reload(), 30000);</script>
+{% endblock %}
