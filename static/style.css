@@ -84,7 +84,7 @@ a { color: var(--cyan); text-decoration: none; }
 /* 筛选栏 */
 .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .filter-bar select, .filter-bar input[type=text], .filter-bar input[type=number],
-.filter-bar input[type=date], .filter-bar input[type=datetime-local] {
+.filter-bar input[type=date], .filter-bar input[type=time], .filter-bar input[type=datetime-local] {
   background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
   border-radius: 9px; padding: 9px 11px; font-size: 13px; outline: none;
   color-scheme: dark;

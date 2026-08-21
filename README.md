@@ -31,6 +31,8 @@ bilibili-monitor/
 │   ├── filters.py     # 多条件筛选与表格/CSV输出
 │   ├── charts.py      # 周/月柱状图 + index.html
 │   ├── webui.py       # 本地 Web GUI (Flask, 仅监听 127.0.0.1)
+│   ├── scheduler.py   # 定时采集调度 (Web GUI 可配置, 实时生效)
+│   ├── video.py       # 数据变化可视化视频 (matplotlib+ffmpeg)
 │   ├── config.py      # 配置加载与默认模板
 │   └── util.py
 ├── templates/         # Web GUI 页面模板 (总览/视频/趋势/快照/控制)
@@ -61,7 +63,8 @@ copy config.example.yaml config.yaml
 .venv\Scripts\python main.py run         # 或: 持续自动监测(间隔见配置, Ctrl+C 停止)
 ```
 
-或者 Windows 下直接双击 `run.bat` 持续运行。
+或者 Windows 下直接双击 `run.bat` 持续运行；
+**双击 `open_gui.bat` 一键打开 Web GUI**（含定时采集调度，关窗即停）。
 
 查看图表：用浏览器打开 `output/charts/index.html`（默认每 5 分钟自动刷新），
 或运行 `python main.py gui` 在 Web GUI 总览页直接查看。
@@ -82,6 +85,7 @@ python main.py gui --port 9000 --no-browser
 | 播放趋势 | 任选 1-2 个视频，ECharts 播放量/点赞趋势曲线对比 |
 | 快照查询 | 任意时刻/时段的历史播放量，见下节 |
 | 运行控制 | 一键立即采集/重建图表/深度回填历史，实时查看运行日志 |
+| 定时采集计划 | 每日时间点 + 时段内按间隔采集，保存后立即生效，无需重启 |
 
 ![Web GUI 视频筛选](docs/screenshots/webui_videos.png)
 
@@ -98,6 +102,30 @@ python main.py snapshot --from "2026-08-18 00:00" --to "2026-08-20 21:00" --acco
 ```
 
 Web GUI 的「快照查询」页提供同样的能力（时刻/时段切换、筛选、排序、CSV 导出）。
+
+## 定时采集（Web GUI 可配置）
+
+打开 Web GUI 的「运行控制」页，在"定时采集计划"卡片中设置：
+
+- **每日时间点**：如 `08:30, 21:30`（逗号分隔，可多个）
+- **间隔采集**：每 N 分钟一次，限定在指定时段内（0 = 关闭）
+- **启用开关**：随时停用
+
+保存后立即生效（计划存于 `data/schedule.json`，调度循环实时重读）。
+GUI 进程运行期间自动按计划采集；若需不开 GUI 也调度，
+单独运行 `python main.py scheduler` 即可（读同一份计划）。
+
+## 数据变化视频（1080p）
+
+```bash
+python main.py video                    # 默认全部快照历史
+python main.py video --days 7           # 仅最近 7 天
+python main.py video --from 2026-08-16 --to 2026-08-20
+```
+
+五场景动效短片：片头 → 总览数字滚动 → Top8 播放趋势曲线生长 →
+本期增量 Top10 条形动画 → 片尾；输出 `output/videos/report_*.mp4`
+（1920×1080 / 30fps / H.264，编码器由 imageio-ffmpeg 自带，无需安装 ffmpeg）。
 
 ## 每日定时自动采集（已配置）
 
@@ -136,6 +164,8 @@ schtasks /Delete /TN BiliMonDailyFetch /F              # 删除定时任务
 | `list` | 按条件筛选视频（见下） |
 | `snapshot` | 查询任意时刻/时段的历史播放量快照（见上节） |
 | `gui` | 启动本地 Web GUI（`--port` / `--no-browser`） |
+| `scheduler` | 常驻定时采集调度（计划同 Web GUI 配置） |
+| `video` | 生成指定时期数据变化可视化视频（`--days` / `--from --to`） |
 | `state` | 查看最近一轮运行状态 |
 
 ### 图表生成

@@ -226,6 +226,44 @@ def cmd_gui(args):
     run_server(cfg, port=args.port, open_browser=not args.no_browser)
 
 
+def cmd_scheduler(args):
+    """常驻定时采集(不启动Web界面); 计划同样读 data/schedule.json."""
+    cfg = cfgmod.load_config(args.config)
+    setup_logging(cfg)
+    from bmon.scheduler import Scheduler
+    try:
+        Scheduler(cfg, os.path.abspath(__file__)).run_forever()
+    except KeyboardInterrupt:
+        print("\n已停止定时采集调度。")
+
+
+def cmd_video(args):
+    cfg = cfgmod.load_config(args.config)
+    setup_logging(cfg)
+    from bmon.storage import Database
+    from bmon import video
+    db = Database(cfg["storage"]["db_path"])
+    row = db.con.execute("SELECT MIN(ts), MAX(ts) FROM snapshots").fetchone()
+    if not row[0]:
+        raise SystemExit("尚无快照数据, 请先执行采集 (fetch)")
+    if args.frm and args.to:
+        ts_from, ts_to = _parse_time(args.frm, "--from"), _parse_time(args.to, "--to")
+    else:
+        import datetime as dt
+        ts_to = row[1]
+        if args.days and args.days > 0:
+            lo = (dt.datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S")
+                  - dt.timedelta(days=args.days)).strftime("%Y-%m-%d %H:%M:%S")
+            ts_from = max(row[0], lo)
+        else:
+            ts_from = row[0]                       # 默认: 全部快照历史
+    if ts_from >= ts_to:
+        raise SystemExit("--from 必须早于 --to")
+    path = video.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
+    print("已生成视频:", path)
+    db.close()
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="main.py",
@@ -282,10 +320,22 @@ def build_parser():
     ps.set_defaults(sort="growth")
     ps.set_defaults(func=cmd_snapshot)
 
-    pg = sub.add_parser("gui", help="启动本地 Web GUI(数据查看+采集控制)")
+    pg = sub.add_parser("gui", help="启动本地 Web GUI(数据查看+采集控制+定时采集配置)")
     pg.add_argument("--port", type=int, default=8322)
     pg.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
     pg.set_defaults(func=cmd_gui)
+
+    sub.add_parser("scheduler",
+                   help="常驻定时采集调度(计划可在 Web GUI 运行控制页配置)").set_defaults(
+        func=cmd_scheduler)
+
+    pv = sub.add_parser("video", help="生成指定时期数据变化可视化视频(1080p MP4)")
+    pv.add_argument("--days", type=int, default=0,
+                    help="仅取最近N天快照(0=全部快照历史)")
+    pv.add_argument("--from", dest="frm", help="时段起点 YYYY-MM-DD [HH:MM]")
+    pv.add_argument("--to", help="时段终点")
+    pv.add_argument("--fps", type=int, default=30)
+    pv.set_defaults(func=cmd_video)
     return p
 
 

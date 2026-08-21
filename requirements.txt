@@ -4,3 +4,4 @@ matplotlib>=3.7
 curl_cffi>=0.7
 typing_extensions>=4.5
 flask
+imageio-ffmpeg>=0.5

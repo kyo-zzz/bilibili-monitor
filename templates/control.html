@@ -20,6 +20,31 @@
 </div>
 
 <div class="card">
+  <div class="card-title">定时采集计划 <span class="dim">（保存后立即生效，无需重启）</span></div>
+  {% if sched_err %}<div class="alert" style="margin-bottom:12px">{{ sched_err }}</div>{% endif %}
+  <form method="post" action="/control/schedule" class="filter-bar">
+    <label class="chk"><input type="checkbox" name="enabled" {{ 'checked' if schedule.enabled }}> 启用定时采集</label>
+    <span class="dim">每日时间点</span>
+    <input type="text" name="times" value="{{ schedule.times|join(', ') }}" placeholder="如 08:30, 21:30" style="min-width:190px">
+    <span class="dim">间隔采集 每</span>
+    <input type="number" name="interval_minutes" value="{{ schedule.interval_minutes }}" min="0" style="width:86px" title="0 = 关闭间隔采集">
+    <span class="dim">分钟，时段</span>
+    <input type="time" name="window_start" value="{{ schedule.window_start }}">
+    <span class="dim">~</span>
+    <input type="time" name="window_end" value="{{ schedule.window_end }}">
+    <button class="btn primary" type="submit">保存计划</button>
+  </form>
+  <div class="dim note">
+    {% if schedule.enabled %}
+      接下来触发：{{ next_runs|join(' · ') if next_runs else '—' }}
+      {% if sched_last %} · 最近一次调度采集：{{ sched_last }}{% if sched_reason %}（{{ sched_reason }}）{% endif %}{% endif %}
+    {% else %}
+      定时采集已停用；可随时手动点击下方按钮采集。
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
   <div class="card-title">手动操作</div>
   <div class="btn-row">
     <form method="post" action="/control/run" class="inline">

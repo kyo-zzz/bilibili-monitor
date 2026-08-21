@@ -17,6 +17,7 @@ from flask import (Flask, Response, abort, jsonify, redirect, render_template,
 
 from . import config as cfgmod
 from . import filters as filters_mod
+from . import scheduler as schedmod
 from .storage import Database
 from .util import fmt_num
 
@@ -227,16 +228,40 @@ def create_app(cfg):
     @app.route("/control")
     def control():
         state = _read_state(cfg)
-        running = any(p and p.poll() is None for p in _procs.values())
+        sched = app.config.get("SCHEDULER")
+        running = any(p and p.poll() is None for p in _procs.values()) \
+            or (sched.busy() if sched else False)
         con = db()
         cursors = [{"name": (a["name"] or a["mid"]), "mid": a["mid"],
                     "cursor": a["feed_cursor"]}
                    for a in con.con.execute(
                        "SELECT name, mid, feed_cursor FROM accounts").fetchall()]
         con.close()
+        schedule = schedmod.load_schedule(cfg)
         return render_template("control.html", state=state, running=running,
                                cursors=cursors,
-                               log_tail=_tail(cfg["logging"].get("file"), 40))
+                               log_tail=_tail(cfg["logging"].get("file"), 40),
+                               schedule=schedule,
+                               next_runs=[d.strftime("%m-%d %H:%M") for d in
+                                          schedmod.next_runs(schedule)],
+                               sched_last=(sched.last_run.strftime("%Y-%m-%d %H:%M:%S")
+                                           if sched and sched.last_run else None),
+                               sched_reason=(sched.last_reason if sched else ""),
+                               sched_err=request.args.get("scherr"))
+
+    @app.route("/control/schedule", methods=["POST"])
+    def control_schedule():
+        ok, err = schedmod.save_schedule(cfg, {
+            "enabled": request.form.get("enabled") == "on",
+            "times": request.form.get("times") or "",
+            "interval_minutes": request.form.get("interval_minutes") or 0,
+            "window_start": request.form.get("window_start") or "",
+            "window_end": request.form.get("window_end") or "",
+        })
+        if not ok:
+            from urllib.parse import quote
+            return redirect("/control?scherr=" + quote(err))
+        return redirect("/control")
 
     @app.route("/control/run", methods=["POST"])
     def control_run():
@@ -271,6 +296,9 @@ def _to_int(v, default):
 
 def run_server(cfg, port=8322, open_browser=True):
     app = create_app(cfg)
+    sched = schedmod.Scheduler(cfg, MAIN_PY)
+    app.config["SCHEDULER"] = sched
+    threading.Thread(target=sched.run_forever, daemon=True).start()
     url = f"http://127.0.0.1:{port}"
     print(f"Web GUI 已启动: {url}  (Ctrl+C 停止)")
     if open_browser:
