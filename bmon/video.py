@@ -241,6 +241,23 @@ def _sc_overview(fig, i, n, data):
             ax.text(cx, y + 0.026, cval, fontsize=16, color=ccolor,
                     ha="center", fontweight="bold", alpha=a,
                     transform=ax.transAxes)
+    # 底部时间轴(与数字滚动进度同步推进)
+    t0, t1 = _time_axis(data)
+    tl_y = 0.105
+    ax.plot([0.07, 0.93], [tl_y, tl_y], color=BORDER, lw=1.5, alpha=a)
+    span = (t1 - t0).total_seconds()
+    for day in [t0] + _day_ticks(t0, t1) + [t1]:
+        gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
+        ax.plot([gx, gx], [tl_y, tl_y + 0.010], color=BORDER, lw=1.2, alpha=a)
+        if day != t1:
+            ax.text(gx, tl_y - 0.030, day.strftime("%m-%d"), fontsize=9,
+                    color=DIM, ha="center", alpha=a)
+    px = 0.07 + 0.86 * p
+    t_cur = t0 + (t1 - t0) * p
+    ax.plot([0.07, px], [tl_y, tl_y], color=CYAN, lw=2.5, alpha=a, zorder=4)
+    ax.plot([px], [tl_y], "o", color=CYAN, ms=6, alpha=a, zorder=4)
+    ax.text(px, tl_y + 0.022, t_cur.strftime("%m-%d"), fontsize=10, color=CYAN,
+            ha="center", fontweight="bold", alpha=a)
 
 
 def _time_axis(data):
@@ -297,16 +314,23 @@ def _sc_trend(fig, i, n, data):
         if frac > 0:
             ax.plot([x0, x1], [vy(v)] * 2, color=GRID, lw=1, alpha=a)
 
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
     for it in trend:
-        pts = [(t, v) for t, v in it["pts"] if t <= sweep]
-        if not pts:
+        f0 = it["pts"][0][0]
+        if sweep < f0:
             continue
-        xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
+        # 快照点间线性插值采样, 折线随扫描平滑生长(不逐点跳出)
+        xs, ys = [], []
+        for k in range(121):
+            t = f0 + (sweep - f0) * k / 120
+            xs.append(tx(t))
+            ys.append(vy(_interp_value(it["pts"], t)))
         ax.plot(xs, ys, color=it["color"], lw=2.8, alpha=a * 0.95,
-                marker="o", ms=5, markerfacecolor=it["color"],
-                markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=3)
+        mp = [(t, v) for t, v in it["pts"] if t <= sweep]
+        ax.plot([tx(t) for t, _ in mp], [vy(v) for _, v in mp], "o",
+                color=it["color"], ms=5, markerfacecolor=it["color"],
+                markeredgecolor=BG, markeredgewidth=0.8, alpha=a, zorder=4)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
@@ -355,16 +379,22 @@ def _sc_gains_videos(fig, i, n, data):
                 fontsize=10, color=DIM, ha="right", va="center", alpha=a)
         ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=1, alpha=a)
 
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
     for it in trend:
-        pts = [(t, v - it["start"]) for t, v in it["pts"] if t <= sweep]
-        if not pts:
+        f0 = it["pts"][0][0]
+        if sweep < f0:
             continue
-        xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
+        xs, ys = [], []
+        for k in range(121):
+            t = f0 + (sweep - f0) * k / 120
+            xs.append(tx(t))
+            ys.append(vy(_interp_value(it["pts"], t) - it["start"]))
         ax.plot(xs, ys, color=it["color"], lw=2.6, alpha=a * 0.95,
-                marker="o", ms=5, markerfacecolor=it["color"],
-                markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=3)
+        mp = [(t, v - it["start"]) for t, v in it["pts"] if t <= sweep]
+        ax.plot([tx(t) for t, _ in mp], [vy(v) for _, v in mp], "o",
+                color=it["color"], ms=5, markerfacecolor=it["color"],
+                markeredgecolor=BG, markeredgewidth=0.8, alpha=a, zorder=4)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
@@ -413,7 +443,7 @@ def _sc_gains_games(fig, i, n, data):
                 fontsize=10, color=DIM, ha="right", va="center", alpha=a)
         ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=1, alpha=a)
 
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
     for g in acc_gains:
         pts = [(t, v) for t, v in g["pts"] if t <= sweep]
         if not pts:
@@ -445,13 +475,14 @@ def _race_timeline(data, n):
     """预计算条形竞跑时间轴: 每帧各视频的当前播放量、排名与平滑后的纵向位置."""
     tops = data["tops"]
     t0, t1 = _time_axis(data)
-    hold = 12
-    sweep = max(1, n - hold * 2)
+    hold, hold_end = 12, 90          # 开头定格0.4s, 结尾定格3s
+    sweep = max(1, n - hold - hold_end)
     top_y, bot_y = 0.80, 0.185
     step = (top_y - bot_y) / len(tops)
     frames, ys = [], None
     for i in range(n):
-        p = 0.0 if i < hold else (1.0 if i >= n - hold else (i - hold) / sweep)
+        p = 0.0 if i < hold else (1.0 if i >= n - hold_end
+                                  else (i - hold) / sweep)
         t = t0 + (t1 - t0) * p
         vals = sorted(((it, _interp_value(it["pts"], t)) for it in tops),
                       key=lambda x: -x[1])
