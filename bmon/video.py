@@ -35,7 +35,8 @@ GOLD = "#e6b450"
 
 # (场景名, 时长秒)
 SCENES = [("title", 3.0), ("overview", 6.5), ("trend", 10.0),
-          ("gains", 10.0), ("bars", 10.0), ("end", 3.0)]
+          ("gains_videos", 9.0), ("gains_games", 8.0),
+          ("bars", 10.0), ("end", 3.0)]
 
 
 def _ease(t):
@@ -322,21 +323,20 @@ def _sc_trend(fig, i, n, data):
                 fontweight="bold", alpha=a, transform=ax.transAxes)
 
 
-def _sc_gains(fig, i, n, data):
+def _sc_gains_videos(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _header(ax, "净增量走势", "Top8 视频各自增量 + 三个游戏合计增量",
+    _header(ax, "净增量走势 · 视频", "变化最显著的 Top8 视频各自净增量",
             _period_str(data), alpha=a)
-    acc_gains, trend = data["acc_gains"], data["trend"]
-    if not acc_gains:
+    trend = data["trend"]
+    if not trend:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=20, color=DIM,
                 ha="center", alpha=a)
         return
     t0, t1 = _time_axis(data)
     x0, x1, y0, y1 = 0.09, 0.70, 0.14, 0.80
     _panel(ax, 0.07, 0.12, 0.65, 0.70, alpha=a)
-    gmax = max(max(g["end"] for g in acc_gains),
-               max(it["growth"] for it in trend)) * 1.10 or 1
+    gmax = max(it["growth"] for it in trend) * 1.08 or 1
 
     def tx(t):
         return x0 + (x1 - x0) * (t - t0).total_seconds() / (t1 - t0).total_seconds()
@@ -356,29 +356,77 @@ def _sc_gains(fig, i, n, data):
         ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=1, alpha=a)
 
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
-    # 细线: 各视频净增量
     for it in trend:
         pts = [(t, v - it["start"]) for t, v in it["pts"] if t <= sweep]
         if not pts:
             continue
         xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
-        ax.plot(xs, ys, color=it["color"], lw=1.7, alpha=a * 0.5,
+        ax.plot(xs, ys, color=it["color"], lw=2.6, alpha=a * 0.95,
+                marker="o", ms=5, markerfacecolor=it["color"],
+                markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=3)
-    # 粗线: 各游戏合计净增量
+    if sweep < t1:
+        gx = tx(sweep)
+        ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
+
+    for k, it in enumerate(trend):
+        sy = 0.78 - k * 0.082
+        cur = next((v - it["start"] for t, v in reversed(it["pts"]) if t <= sweep), 0)
+        ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
+                transform=ax.transAxes)
+        ax.text(0.755, sy, _short(it["title"], 12), fontsize=11, color=TEXT,
+                va="center", alpha=a, transform=ax.transAxes)
+        ax.text(0.985, sy, "+" + fmt_num(max(0, int(cur))), fontsize=11.5,
+                color=GREEN, va="center", ha="right",
+                fontweight="bold", alpha=a, transform=ax.transAxes)
+
+
+def _sc_gains_games(fig, i, n, data):
+    ax = _full_ax(fig)
+    a = _fade(i, n)
+    _header(ax, "净增量走势 · 分游戏", "三个游戏全部监测视频的合计净增量",
+            _period_str(data), alpha=a)
+    acc_gains = data["acc_gains"]
+    if not acc_gains:
+        ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=20, color=DIM,
+                ha="center", alpha=a)
+        return
+    t0, t1 = _time_axis(data)
+    x0, x1, y0, y1 = 0.09, 0.70, 0.14, 0.80
+    _panel(ax, 0.07, 0.12, 0.65, 0.70, alpha=a)
+    gmax = max(g["end"] for g in acc_gains) * 1.10 or 1
+
+    def tx(t):
+        return x0 + (x1 - x0) * (t - t0).total_seconds() / (t1 - t0).total_seconds()
+
+    def vy(v):
+        return y0 + (y1 - y0) * max(0.0, v) / gmax
+
+    ax.plot([x0, x1], [y0, y0], color=BORDER, lw=1.2, alpha=a)
+    for day in _day_ticks(t0, t1):
+        gx = tx(day)
+        ax.plot([gx, gx], [y0, y1], color=GRID, lw=1, alpha=a)
+        ax.text(gx, y0 - 0.032, day.strftime("%m-%d"), fontsize=10.5,
+                color=DIM, ha="center", alpha=a)
+    for frac in (0.33, 0.66, 1.0):
+        ax.text(x0 - 0.012, vy(gmax * frac), fmt_num(int(gmax * frac)),
+                fontsize=10, color=DIM, ha="right", va="center", alpha=a)
+        ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=1, alpha=a)
+
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
     for g in acc_gains:
         pts = [(t, v) for t, v in g["pts"] if t <= sweep]
         if not pts:
             continue
         xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
-        ax.plot(xs, ys, color=g["color"], lw=3.2, alpha=a,
+        ax.plot(xs, ys, color=g["color"], lw=3.4, alpha=a,
+                marker="o", ms=6, markerfacecolor=g["color"],
+                markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=4)
-        ax.plot(xs[-1], ys[-1], "o", color=g["color"], ms=6.5, alpha=a,
-                markeredgecolor=BG, markeredgewidth=0.8, zorder=4)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
 
-    # 右侧: 游戏合计增量排行(数字滚动)
     p = _ease(i / max(1, n - 25))
     for k, g in enumerate(acc_gains[:3]):
         sy = 0.74 - k * 0.115
@@ -391,17 +439,15 @@ def _sc_gains(fig, i, n, data):
         ax.text(0.965, sy, "+" + fmt_num(int(cur * p)), fontsize=14,
                 color=GREEN, va="center", ha="right", fontweight="bold",
                 alpha=a, transform=ax.transAxes)
-    ax.text(0.73, 0.30, "细线为 Top8 视频各自增量", fontsize=10.5, color=DIM,
-            alpha=a)
 
 
 def _race_timeline(data, n):
-    """预计算条形竞跑时间轴: 每帧各视频的累计增量、排名与平滑后的纵向位置."""
+    """预计算条形竞跑时间轴: 每帧各视频的当前播放量、排名与平滑后的纵向位置."""
     tops = data["tops"]
     t0, t1 = _time_axis(data)
     hold = 12
     sweep = max(1, n - hold * 2)
-    top_y, bot_y = 0.835, 0.185
+    top_y, bot_y = 0.80, 0.185
     step = (top_y - bot_y) / len(tops)
     frames, ys = [], None
     for i in range(n):
@@ -420,10 +466,26 @@ def _race_timeline(data, n):
     return frames
 
 
+def _bar_axis(tops):
+    """播放量横轴范围: 最高者占满、其余等比缩放;
+    若各视频播放量相对差异过小(不足最高值的45%), 自动抬升轴起点(截断轴)放大差异."""
+    vmax = max(it["end"] for it in tops) or 1
+    vmin = min(it["start"] for it in tops)
+    if vmax <= 0:
+        return 0, 1
+    if (vmax - vmin) / vmax >= 0.45 or vmin <= 0:
+        axis_min = 0
+    else:
+        step = 10 ** max(5, len(str(int(vmin))) - 2)
+        axis_min = int(vmin * 0.995 // step) * step
+    return axis_min, vmax * 1.04
+
+
 def _sc_bars(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _header(ax, "逐日播放增量 Top10", "条形长度=截至当日的净增量 · 右侧为当前总播放",
+    _header(ax, "播放量竞跑 Top10",
+            "条形长度=当前播放量(横轴) · 最高者占满, 其余等比 · 条尾为当日新增",
             _period_str(data), alpha=a)
     tops = data["tops"]
     if not tops:
@@ -435,26 +497,45 @@ def _sc_bars(fig, i, n, data):
         race = data["_race"] = _race_timeline(data, n)
     fr = race[min(i, len(race) - 1)]
     t0, t1 = _time_axis(data)
-    vmax = tops[0]["growth"] or 1
     left, right = 0.28, 0.80
-    step = (0.835 - 0.185) / len(tops)
+    top_y, bot_y = 0.80, 0.185
+    step = (top_y - bot_y) / len(tops)
+    axis_min, axis_max = _bar_axis(tops)
 
-    ax.text(0.985, 0.862, "当前播放量", fontsize=9.5, color=DIM, ha="right",
+    def bw(v):
+        return (right - left) * max(0.0, v - axis_min) / (axis_max - axis_min)
+
+    # 顶部播放量横轴刻度 + 竖向网格
+    for frac in (0.0, 1 / 3, 2 / 3, 1.0):
+        val = axis_min + (axis_max - axis_min) * frac
+        gx = left + (right - left) * frac
+        ax.plot([gx, gx], [bot_y, top_y], color=GRID, lw=1, alpha=a)
+        ax.text(gx, 0.845, fmt_num(int(val)), fontsize=9.5, color=DIM,
+                ha="center", alpha=a)
+    if axis_min > 0:
+        ax.text(left - 0.012, 0.845, "//", fontsize=9.5, color=DIM,
+                ha="right", alpha=a)
+        ax.text(0.93, 0.880, "轴起点已抬升以突出差异", fontsize=9,
+                color=DIM, ha="right", alpha=a * 0.85)
+    ax.text(0.985, 0.845, "当前播放量", fontsize=9.5, color=DIM, ha="right",
             alpha=a)
+
     for rank, (it, v) in enumerate(fr["vals"]):
         y = fr["ys"][it["bvid"]]
-        w = max(0.0001, (right - left) * v / vmax)
+        w = max(0.0001, bw(v))
         ax.text(left - 0.018, y, _short(it["title"], 12), fontsize=10,
                 color=TEXT, ha="right", va="center", alpha=a,
                 transform=ax.transAxes, zorder=3)
         ax.add_patch(Rectangle((left, y - step * 0.28), w, step * 0.56,
                                facecolor=it["color"], edgecolor="none",
                                alpha=a * 0.92, transform=ax.transAxes, zorder=3))
-        ax.text(left + w + 0.010, y, "+" + fmt_num(int(v)),
-                fontsize=11, color=GOLD if rank < 3 else TEXT, va="center",
-                fontweight="bold" if rank < 3 else "normal", alpha=a,
-                transform=ax.transAxes, zorder=3)
-        ax.text(0.985, y, fmt_num(int(it["start"] + v)), fontsize=10.5,
+        gain = int(max(0, v - it["start"]))
+        if gain > 0:
+            ax.text(left + w + 0.010, y, "+" + fmt_num(gain),
+                    fontsize=10.5, color=GOLD if rank < 3 else TEXT, va="center",
+                    fontweight="bold" if rank < 3 else "normal", alpha=a,
+                    transform=ax.transAxes, zorder=3)
+        ax.text(0.985, y, fmt_num(int(v)), fontsize=10.5,
                 color=DIM, va="center", ha="right", alpha=a,
                 transform=ax.transAxes, zorder=3)
 
@@ -500,7 +581,8 @@ def _sc_end(fig, i, n, data):
 
 
 _DRAW = {"title": _sc_title, "overview": _sc_overview, "trend": _sc_trend,
-         "gains": _sc_gains, "bars": _sc_bars, "end": _sc_end}
+         "gains_videos": _sc_gains_videos, "gains_games": _sc_gains_games,
+         "bars": _sc_bars, "end": _sc_end}
 
 
 # ---------- 对外入口 ----------
