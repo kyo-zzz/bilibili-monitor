@@ -7,6 +7,7 @@ matplotlib 逐帧渲染 + imageio-ffmpeg 自带编码器输出 1920x1080 H.264 M
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime, timedelta
 
 import matplotlib
@@ -51,6 +52,34 @@ def _fade(i, n, fin=15, fout=10):
 def _strip_game(s):
     """去掉标题开头的《游戏名》前缀(可多个), 避免占用展示宽度."""
     return re.sub(r"^(《[^》]*》[\s\-—·|]*)+", "", s).strip() or s
+
+
+def _wrap_lines(s, disp_width):
+    """按显示宽度折行(中文计2), 不丢字."""
+    lines, cur, w = [], "", 0
+    for ch in s:
+        c = 2 if unicodedata.east_asian_width(ch) in "FW" else 1
+        if w + c > disp_width:
+            lines.append(cur)
+            cur, w = ch, c
+        else:
+            cur += ch
+            w += c
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _wrap2(title, disp_width=26, max_lines=2):
+    """把标题折成不超过 max_lines 行完整显示(不截断);
+    长标题自动放宽行宽重折, 宁可宽一点也不丢字."""
+    s = _strip_game(str(title).strip())
+    lines = []
+    for w in (disp_width, disp_width + 6, disp_width + 12, disp_width + 18):
+        lines = _wrap_lines(s, w)
+        if len(lines) <= max_lines:
+            break
+    return "\n".join(lines)
 
 
 def _short(s, width=13):
@@ -340,8 +369,8 @@ def _sc_trend(fig, i, n, data):
         cur = next((v for t, v in reversed(it["pts"]) if t <= sweep), None)
         ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
                 transform=ax.transAxes)
-        ax.text(0.755, sy, _short(it["title"], 12), fontsize=11, color=TEXT,
-                va="center", alpha=a, transform=ax.transAxes)
+        ax.text(0.755, sy, _wrap2(it["title"], 24), fontsize=9.5, color=TEXT,
+                va="center", linespacing=1.15, alpha=a, transform=ax.transAxes)
         ax.text(0.985, sy, fmt_num(cur) if cur else "—", fontsize=11.5,
                 color=it["color"], va="center", ha="right",
                 fontweight="bold", alpha=a, transform=ax.transAxes)
@@ -404,8 +433,8 @@ def _sc_gains_videos(fig, i, n, data):
         cur = next((v - it["start"] for t, v in reversed(it["pts"]) if t <= sweep), 0)
         ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
                 transform=ax.transAxes)
-        ax.text(0.755, sy, _short(it["title"], 12), fontsize=11, color=TEXT,
-                va="center", alpha=a, transform=ax.transAxes)
+        ax.text(0.755, sy, _wrap2(it["title"], 24), fontsize=9.5, color=TEXT,
+                va="center", linespacing=1.15, alpha=a, transform=ax.transAxes)
         ax.text(0.985, sy, "+" + fmt_num(max(0, int(cur))), fontsize=11.5,
                 color=GREEN, va="center", ha="right",
                 fontweight="bold", alpha=a, transform=ax.transAxes)
@@ -554,9 +583,9 @@ def _sc_bars(fig, i, n, data):
     for rank, (it, v) in enumerate(fr["vals"]):
         y = fr["ys"][it["bvid"]]
         w = max(0.0001, bw(v))
-        ax.text(left - 0.018, y, _short(it["title"], 12), fontsize=10,
-                color=TEXT, ha="right", va="center", alpha=a,
-                transform=ax.transAxes, zorder=3)
+        ax.text(left - 0.018, y, _wrap2(it["title"], 30), fontsize=8.8,
+                color=TEXT, ha="right", va="center", linespacing=1.1,
+                alpha=a, transform=ax.transAxes, zorder=3)
         ax.add_patch(Rectangle((left, y - step * 0.28), w, step * 0.56,
                                facecolor=it["color"], edgecolor="none",
                                alpha=a * 0.92, transform=ax.transAxes, zorder=3))
