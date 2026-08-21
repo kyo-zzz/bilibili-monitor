@@ -1,7 +1,8 @@
 """数据变化可视化视频生成: 指定时期内播放量变化的动效短片.
 
 matplotlib 逐帧渲染 + imageio-ffmpeg 自带编码器输出 1920x1080 H.264 MP4.
-场景结构: 片头 → 总览数字滚动 → 播放趋势曲线生长 → 本期增量Top条形动画 → 片尾.
+场景结构: 片头 → 总览(合计+分游戏) → 播放量走势折线 → 净增量走势(视频+游戏合计)
+          → 逐日增量条形竞跑(带日期轴) → 片尾.
 """
 import logging
 import os
@@ -12,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter, FuncAnimation
+from matplotlib.patches import FancyBboxPatch, Rectangle
 
 from .charts import account_style, setup_font
 from .util import fmt_num
@@ -20,19 +22,20 @@ log = logging.getLogger("bmon.video")
 
 TSFMT = "%Y-%m-%d %H:%M:%S"
 
-# 与 Web GUI 同源的深色主题
-BG = "#0f1216"
-PANEL = "#171b22"
-TEXT = "#e7eaf0"
-DIM = "#8892a6"
-CYAN = "#00a1d6"
-PINK = "#fb7299"
-GREEN = "#2ecc71"
-GOLD = "#f0b429"
+# 深色主题(与 Web GUI 同源, 视频侧微调更柔和)
+BG = "#0f1319"
+PANEL = "#151a22"
+BORDER = "#242b37"
+GRID = "#1c222d"
+TEXT = "#e9edf4"
+DIM = "#8593a8"
+CYAN = "#23ade3"
+GREEN = "#3ecf8e"
+GOLD = "#e6b450"
 
 # (场景名, 时长秒)
-SCENES = [("title", 3.0), ("overview", 5.0), ("trend", 10.0),
-          ("bars", 9.0), ("end", 3.0)]
+SCENES = [("title", 3.0), ("overview", 6.5), ("trend", 10.0),
+          ("gains", 10.0), ("bars", 10.0), ("end", 3.0)]
 
 
 def _ease(t):
@@ -42,6 +45,11 @@ def _ease(t):
 
 def _fade(i, n, fin=15, fout=10):
     return min(1.0, i / fin) * min(1.0, (n - i) / fout)
+
+
+def _strip_game(s):
+    """去掉标题开头的《游戏名》前缀(可多个), 避免占用展示宽度."""
+    return re.sub(r"^(《[^》]*》[\s\-—·|]*)+", "", s).strip() or s
 
 
 def _short(s, width=13):
@@ -54,14 +62,20 @@ def _short(s, width=13):
     return out
 
 
-def _strip_game(s):
-    """去掉标题开头的《游戏名》前缀(可多个), 避免占用展示宽度."""
-    return re.sub(r"^(《[^》]*》[\s\-—·|]*)+", "", s).strip() or s
-
-
 # ---------- 数据准备 ----------
+def _interp_value(pts, t):
+    """快照序列在时刻 t 的线性插值(用于逐日变化的平滑动画)."""
+    if t <= pts[0][0]:
+        return pts[0][1]
+    for (ta, va), (tb, vb) in zip(pts, pts[1:]):
+        if t <= tb:
+            span = (tb - ta).total_seconds() or 1.0
+            return va + (vb - va) * (t - ta).total_seconds() / span
+    return pts[-1][1]
+
+
 def collect(db, cfg, ts_from, ts_to):
-    """汇总视频: 趋势序列 / 增量Top / 总览数字."""
+    """汇总视频: 趋势序列 / 增量Top / 总览数字 / 分游戏明细."""
     rows = db.videos_with_stats()
     meta = {r["bvid"]: r for r in rows}
     ordered, labels, colors = account_style(cfg, rows)
@@ -104,7 +118,38 @@ def collect(db, cfg, ts_from, ts_to):
         "views": sum(r.get("latest_view") or 0 for r in rows),
         "growth": sum(it["growth"] for it in items),
     }
+
+    # 分游戏明细: 视频数 / 累计播放 / 本期增量
+    accounts = []
+    for mid in ordered:
+        acc_rows = [r for r in rows if r.get("mid") == mid]
+        if not acc_rows:
+            continue
+        accounts.append({
+            "mid": mid, "name": labels.get(mid, str(mid)),
+            "color": colors.get(mid, "#999"),
+            "videos": len(acc_rows),
+            "views": sum(r.get("latest_view") or 0 for r in acc_rows),
+            "growth": sum(it["growth"] for it in items if it["mid"] == mid),
+        })
+
+    # 各游戏合计净增量曲线(时间轴采样)
+    t0d, t1d = datetime.strptime(ts_from, TSFMT), datetime.strptime(ts_to, TSFMT)
+    if t1d <= t0d:
+        t1d = t0d + timedelta(days=1)
+    samples = [t0d + (t1d - t0d) * k / 120 for k in range(121)]
+    acc_gains = []
+    for acc in accounts:
+        its = [it for it in items if it["mid"] == acc["mid"]]
+        if not its:
+            continue
+        pts = [(t, sum(_interp_value(it["pts"], t) - it["start"] for it in its))
+               for t in samples]
+        acc_gains.append({**acc, "pts": pts, "end": pts[-1][1]})
+    acc_gains.sort(key=lambda x: -x["end"])
+
     return {"trend": trend, "tops": tops, "summary": summary,
+            "accounts": accounts, "acc_gains": acc_gains,
             "labels": labels, "colors": colors, "ordered": ordered,
             "ts_from": ts_from, "ts_to": ts_to}
 
@@ -119,37 +164,51 @@ def _full_ax(fig):
     return ax
 
 
-def _scene_title(ax, text, sub="", alpha=1.0):
-    ax.text(0.07, 0.93, text, fontsize=23, color=TEXT, alpha=alpha,
-            fontweight="bold")
-    ax.plot([0.07, 0.07 + 0.055], [0.905, 0.905], color=CYAN, lw=3, alpha=alpha)
+def _panel(ax, x, y, w, h, alpha=1.0, zorder=1):
+    ax.add_patch(FancyBboxPatch((x, y), w, h,
+                                boxstyle="round,pad=0,rounding_size=0.011",
+                                facecolor=PANEL, edgecolor=BORDER, linewidth=1,
+                                alpha=alpha, transform=ax.transAxes,
+                                mutation_aspect=16 / 9, zorder=zorder))
+
+
+def _header(ax, title, sub, period, alpha=1.0):
+    ax.text(0.07, 0.932, title, fontsize=22, color=TEXT, fontweight="bold",
+            alpha=alpha)
+    ax.add_patch(Rectangle((0.07, 0.903), 0.042, 0.0042, facecolor=CYAN,
+                           edgecolor="none", alpha=alpha, transform=ax.transAxes))
     if sub:
-        ax.text(0.07, 0.885, sub, fontsize=12.5, color=DIM, alpha=alpha)
+        ax.text(0.07, 0.880, sub, fontsize=12, color=DIM, alpha=alpha)
+    if period:
+        ax.text(0.93, 0.932, period, fontsize=11.5, color=DIM, ha="right",
+                alpha=alpha)
+
+
+def _period_str(data):
+    return f"{data['ts_from'][:10]} ~ {data['ts_to'][:10]}"
 
 
 # ---------- 场景 ----------
 def _sc_title(fig, i, n, data):
     ax = _full_ax(fig)
     p, a = _ease(i / max(1, n - 1)), _fade(i, n)
-    d1 = data["ts_from"][:10]
-    d2 = data["ts_to"][:10]
-    ax.text(0.5, 0.62, "B站官号数据变化报告", fontsize=52, color=TEXT,
+    ax.text(0.5, 0.615, "B站官号数据变化报告", fontsize=50, color=TEXT,
             ha="center", fontweight="bold", alpha=a)
-    ax.text(0.5, 0.50, f"{d1}  ~  {d2}", fontsize=24, color=CYAN,
+    ax.plot([0.5 - 0.10 * p, 0.5 + 0.10 * p], [0.565, 0.565], color=CYAN,
+            lw=2.2, alpha=a)
+    ax.text(0.5, 0.495, _period_str(data), fontsize=23, color=CYAN,
             ha="center", alpha=a * p)
-    ax.text(0.5, 0.42, "播放量 · 快照数据 · 本地监测", fontsize=14, color=DIM,
-            ha="center", alpha=a * p)
-    ax.plot([0.5 - 0.11 * p, 0.5 + 0.11 * p], [0.565, 0.565],
-            color=PINK, lw=2.5, alpha=a)
-    ax.text(0.5, 0.09, "bmon · bilibili-monitor", fontsize=12, color=DIM,
-            ha="center", alpha=a * 0.8)
+    ax.text(0.5, 0.425, "播放量 · 快照数据 · 本地监测", fontsize=13.5,
+            color=DIM, ha="center", alpha=a * p)
+    ax.text(0.5, 0.09, "bmon · bilibili-monitor", fontsize=11.5, color=DIM,
+            ha="center", alpha=a * 0.7)
 
 
 def _sc_overview(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
     p = _ease(i / max(1, n - 25))
-    _scene_title(ax, "总览", "本期数据概况", alpha=a)
+    _header(ax, "总览", "全账号合计与分游戏明细", _period_str(data), alpha=a)
     s = data["summary"]
     cards = [
         ("监测视频", fmt_num(int(s["videos"] * p)), TEXT),
@@ -157,102 +216,192 @@ def _sc_overview(fig, i, n, data):
         ("本期播放增量", "+" + fmt_num(int(s["growth"] * p)), GREEN),
     ]
     for k, (label, val, color) in enumerate(cards):
-        cx = 0.14 + k * 0.27
-        ax.add_patch(plt.Rectangle((cx, 0.32), 0.22, 0.34, facecolor=PANEL,
-                                   edgecolor="#262c37", linewidth=1.2,
-                                   alpha=a, transform=ax.transAxes, zorder=2))
-        ax.text(cx + 0.11, 0.585, label, fontsize=15, color=DIM,
-                ha="center", alpha=a, transform=ax.transAxes, zorder=3)
-        ax.text(cx + 0.11, 0.44, val, fontsize=34, color=color,
-                ha="center", fontweight="bold", alpha=a,
-                transform=ax.transAxes, zorder=3)
+        x = 0.07 + k * 0.30
+        _panel(ax, x, 0.635, 0.27, 0.20, alpha=a)
+        ax.text(x + 0.135, 0.790, label, fontsize=13, color=DIM, ha="center",
+                alpha=a, transform=ax.transAxes)
+        ax.text(x + 0.135, 0.700, val, fontsize=30, color=color, ha="center",
+                fontweight="bold", alpha=a, transform=ax.transAxes)
+    ax.text(0.07, 0.578, "分游戏明细", fontsize=13, color=DIM, alpha=a)
+    for k, acc in enumerate(data["accounts"][:3]):
+        y = 0.435 - k * 0.128
+        _panel(ax, 0.07, y, 0.86, 0.105, alpha=a)
+        ax.plot([0.098], [y + 0.0525], "o", color=acc["color"], ms=9, alpha=a,
+                transform=ax.transAxes)
+        ax.text(0.118, y + 0.0525, acc["name"], fontsize=15, color=TEXT,
+                va="center", fontweight="bold", alpha=a, transform=ax.transAxes)
+        cols = [("视频数", fmt_num(int(acc["videos"] * p)), TEXT),
+                ("累计播放", fmt_num(int(acc["views"] * p)), TEXT),
+                ("本期增量", "+" + fmt_num(int(acc["growth"] * p)), GREEN)]
+        for c, (clabel, cval, ccolor) in enumerate(cols):
+            cx = 0.50 + c * 0.155
+            ax.text(cx, y + 0.072, clabel, fontsize=10, color=DIM,
+                    ha="center", alpha=a, transform=ax.transAxes)
+            ax.text(cx, y + 0.026, cval, fontsize=16, color=ccolor,
+                    ha="center", fontweight="bold", alpha=a,
+                    transform=ax.transAxes)
+
+
+def _time_axis(data):
+    t0 = datetime.strptime(data["ts_from"], TSFMT)
+    t1 = datetime.strptime(data["ts_to"], TSFMT)
+    if t1 <= t0:
+        t1 = t0 + timedelta(days=1)
+    return t0, t1
+
+
+def _day_ticks(t0, t1):
+    day = (t0 + timedelta(days=1)).replace(hour=0, minute=0, second=0)
+    out = []
+    while day < t1:
+        out.append(day)
+        day += timedelta(days=1)
+    return out
 
 
 def _sc_trend(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _scene_title(ax, "播放量走势", "监测期内变化最显著的 Top8 视频 · 快照折线", alpha=a)
+    _header(ax, "播放量走势", "监测期内变化最显著的 Top8 视频 · 快照折线",
+            _period_str(data), alpha=a)
     trend = data["trend"]
     if not trend:
         ax.text(0.5, 0.45, "本期暂无趋势数据", fontsize=20, color=DIM,
                 ha="center", alpha=a)
         return
-    t0 = datetime.strptime(data["ts_from"], TSFMT)
-    t1 = datetime.strptime(data["ts_to"], TSFMT)
-    if t1 <= t0:
-        t1 = t0 + timedelta(days=1)
-    x0, x1, y0, y1 = 0.08, 0.70, 0.13, 0.80
-    vmax = max(it["end"] for it in trend) * 1.08
+    t0, t1 = _time_axis(data)
+    x0, x1, y0, y1 = 0.09, 0.70, 0.14, 0.80
+    _panel(ax, 0.07, 0.12, 0.65, 0.70, alpha=a)
+    vmin = min(v for it in trend for _, v in it["pts"])
+    vmax = max(v for it in trend for _, v in it["pts"])
+    lo = max(0, vmin - (vmax - vmin) * 0.12)
+    hi = vmax + (vmax - vmin) * 0.08 or 1
 
     def tx(t):
         return x0 + (x1 - x0) * (t - t0).total_seconds() / (t1 - t0).total_seconds()
 
     def vy(v):
-        return y0 + (y1 - y0) * v / vmax
+        return y0 + (y1 - y0) * (v - lo) / (hi - lo)
 
-    # 网格与日期刻度
-    ax.plot([x0, x1], [y0, y0], color="#262c37", lw=1.2, alpha=a)
-    day = (t0 + timedelta(days=1)).replace(hour=0, minute=0, second=0)
-    while day < t1:
+    ax.plot([x0, x1], [y0, y0], color=BORDER, lw=1.2, alpha=a)
+    for day in _day_ticks(t0, t1):
         gx = tx(day)
-        ax.plot([gx, gx], [y0, y1], color="#1d222b", lw=1, alpha=a)
-        ax.text(gx, y0 - 0.035, day.strftime("%m-%d"), fontsize=11,
+        ax.plot([gx, gx], [y0, y1], color=GRID, lw=1, alpha=a)
+        ax.text(gx, y0 - 0.032, day.strftime("%m-%d"), fontsize=10.5,
                 color=DIM, ha="center", alpha=a)
-        day += timedelta(days=1)
-    for frac in (0.25, 0.5, 0.75, 1.0):
-        ax.text(x0 - 0.012, vy(vmax * frac), fmt_num(int(vmax * frac)),
-                fontsize=10.5, color=DIM, ha="right", va="center", alpha=a)
-        ax.plot([x0, x1], [vy(vmax * frac)] * 2, color="#1d222b", lw=1, alpha=a)
+    for frac in (0.0, 0.33, 0.66, 1.0):
+        v = lo + (hi - lo) * frac
+        ax.text(x0 - 0.012, vy(v), fmt_num(int(v)), fontsize=10, color=DIM,
+                ha="right", va="center", alpha=a)
+        if frac > 0:
+            ax.plot([x0, x1], [vy(v)] * 2, color=GRID, lw=1, alpha=a)
 
-    # 曲线随时间生长(折线连接快照点)
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
     for it in trend:
         pts = [(t, v) for t, v in it["pts"] if t <= sweep]
-        if len(pts) < 1:
+        if not pts:
             continue
         xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
-        ax.plot(xs, ys, color=it["color"], lw=3.0, alpha=a * 0.95,
-                marker="o", ms=5.5, markerfacecolor=it["color"],
+        ax.plot(xs, ys, color=it["color"], lw=2.8, alpha=a * 0.95,
+                marker="o", ms=5, markerfacecolor=it["color"],
                 markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=3)
     if sweep < t1:
         gx = tx(sweep)
-        ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.5)
+        ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
 
-    # 右侧固定槽位标签(按最终播放量排序)
     for k, it in enumerate(trend):
         sy = 0.78 - k * 0.082
         cur = next((v for t, v in reversed(it["pts"]) if t <= sweep), None)
         ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
                 transform=ax.transAxes)
-        ax.text(0.755, sy, _short(it["title"], 12), fontsize=11.5, color=TEXT,
+        ax.text(0.755, sy, _short(it["title"], 12), fontsize=11, color=TEXT,
                 va="center", alpha=a, transform=ax.transAxes)
-        ax.text(0.985, sy, fmt_num(cur) if cur else "—", fontsize=12,
+        ax.text(0.985, sy, fmt_num(cur) if cur else "—", fontsize=11.5,
                 color=it["color"], va="center", ha="right",
                 fontweight="bold", alpha=a, transform=ax.transAxes)
 
 
-def _interp_value(pts, t):
-    """快照序列在时刻 t 的线性插值(用于逐日变化的平滑动画)."""
-    if t <= pts[0][0]:
-        return pts[0][1]
-    for (ta, va), (tb, vb) in zip(pts, pts[1:]):
-        if t <= tb:
-            span = (tb - ta).total_seconds() or 1.0
-            return va + (vb - va) * (t - ta).total_seconds() / span
-    return pts[-1][1]
+def _sc_gains(fig, i, n, data):
+    ax = _full_ax(fig)
+    a = _fade(i, n)
+    _header(ax, "净增量走势", "Top8 视频各自增量 + 三个游戏合计增量",
+            _period_str(data), alpha=a)
+    acc_gains, trend = data["acc_gains"], data["trend"]
+    if not acc_gains:
+        ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=20, color=DIM,
+                ha="center", alpha=a)
+        return
+    t0, t1 = _time_axis(data)
+    x0, x1, y0, y1 = 0.09, 0.70, 0.14, 0.80
+    _panel(ax, 0.07, 0.12, 0.65, 0.70, alpha=a)
+    gmax = max(max(g["end"] for g in acc_gains),
+               max(it["growth"] for it in trend)) * 1.10 or 1
+
+    def tx(t):
+        return x0 + (x1 - x0) * (t - t0).total_seconds() / (t1 - t0).total_seconds()
+
+    def vy(v):
+        return y0 + (y1 - y0) * max(0.0, v) / gmax
+
+    ax.plot([x0, x1], [y0, y0], color=BORDER, lw=1.2, alpha=a)
+    for day in _day_ticks(t0, t1):
+        gx = tx(day)
+        ax.plot([gx, gx], [y0, y1], color=GRID, lw=1, alpha=a)
+        ax.text(gx, y0 - 0.032, day.strftime("%m-%d"), fontsize=10.5,
+                color=DIM, ha="center", alpha=a)
+    for frac in (0.33, 0.66, 1.0):
+        ax.text(x0 - 0.012, vy(gmax * frac), fmt_num(int(gmax * frac)),
+                fontsize=10, color=DIM, ha="right", va="center", alpha=a)
+        ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=1, alpha=a)
+
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 30))
+    # 细线: 各视频净增量
+    for it in trend:
+        pts = [(t, v - it["start"]) for t, v in it["pts"] if t <= sweep]
+        if not pts:
+            continue
+        xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
+        ax.plot(xs, ys, color=it["color"], lw=1.7, alpha=a * 0.5,
+                solid_capstyle="round", zorder=3)
+    # 粗线: 各游戏合计净增量
+    for g in acc_gains:
+        pts = [(t, v) for t, v in g["pts"] if t <= sweep]
+        if not pts:
+            continue
+        xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
+        ax.plot(xs, ys, color=g["color"], lw=3.2, alpha=a,
+                solid_capstyle="round", zorder=4)
+        ax.plot(xs[-1], ys[-1], "o", color=g["color"], ms=6.5, alpha=a,
+                markeredgecolor=BG, markeredgewidth=0.8, zorder=4)
+    if sweep < t1:
+        gx = tx(sweep)
+        ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
+
+    # 右侧: 游戏合计增量排行(数字滚动)
+    p = _ease(i / max(1, n - 25))
+    for k, g in enumerate(acc_gains[:3]):
+        sy = 0.74 - k * 0.115
+        cur = next((v for t, v in reversed(g["pts"]) if t <= sweep), 0)
+        _panel(ax, 0.73, sy - 0.045, 0.255, 0.09, alpha=a)
+        ax.plot([0.752], [sy], "o", color=g["color"], ms=9, alpha=a,
+                transform=ax.transAxes)
+        ax.text(0.772, sy, g["name"], fontsize=12.5, color=TEXT, va="center",
+                fontweight="bold", alpha=a, transform=ax.transAxes)
+        ax.text(0.965, sy, "+" + fmt_num(int(cur * p)), fontsize=14,
+                color=GREEN, va="center", ha="right", fontweight="bold",
+                alpha=a, transform=ax.transAxes)
+    ax.text(0.73, 0.30, "细线为 Top8 视频各自增量", fontsize=10.5, color=DIM,
+            alpha=a)
 
 
 def _race_timeline(data, n):
     """预计算条形竞跑时间轴: 每帧各视频的累计增量、排名与平滑后的纵向位置."""
     tops = data["tops"]
-    t0 = datetime.strptime(data["ts_from"], TSFMT)
-    t1 = datetime.strptime(data["ts_to"], TSFMT)
-    if t1 <= t0:
-        t1 = t0 + timedelta(days=1)
+    t0, t1 = _time_axis(data)
     hold = 12
     sweep = max(1, n - hold * 2)
-    top_y, bot_y = 0.80, 0.12
+    top_y, bot_y = 0.835, 0.185
     step = (top_y - bot_y) / len(tops)
     frames, ys = [], None
     for i in range(n):
@@ -274,7 +423,8 @@ def _race_timeline(data, n):
 def _sc_bars(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
-    _scene_title(ax, "本期播放增量 Top10", "逐日播放变化 · 条形竞跑", alpha=a)
+    _header(ax, "逐日播放增量 Top10", "条形长度=截至当日的净增量 · 右侧为当前总播放",
+            _period_str(data), alpha=a)
     tops = data["tops"]
     if not tops:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=20, color=DIM,
@@ -284,53 +434,73 @@ def _sc_bars(fig, i, n, data):
     if race is None:
         race = data["_race"] = _race_timeline(data, n)
     fr = race[min(i, len(race) - 1)]
+    t0, t1 = _time_axis(data)
     vmax = tops[0]["growth"] or 1
-    left, right = 0.34, 0.88
-    step = (0.80 - 0.12) / len(tops)
-    ax.text(0.925, 0.5, fr["t"].strftime("%m-%d"), fontsize=34, color="#1d222b",
-            ha="center", va="center", fontweight="bold", alpha=a,
-            transform=ax.transAxes, zorder=1)
+    left, right = 0.28, 0.80
+    step = (0.835 - 0.185) / len(tops)
+
+    ax.text(0.985, 0.862, "当前播放量", fontsize=9.5, color=DIM, ha="right",
+            alpha=a)
     for rank, (it, v) in enumerate(fr["vals"]):
         y = fr["ys"][it["bvid"]]
         w = max(0.0001, (right - left) * v / vmax)
-        ax.add_patch(plt.Rectangle((left, y - step * 0.30), w, step * 0.60,
-                                   facecolor=it["color"], edgecolor="none",
-                                   alpha=a * 0.92, transform=ax.transAxes, zorder=3))
-        ax.text(left - 0.045, y, _short(it["title"], 13), fontsize=11.5,
+        ax.text(left - 0.018, y, _short(it["title"], 12), fontsize=10,
                 color=TEXT, ha="right", va="center", alpha=a,
                 transform=ax.transAxes, zorder=3)
-        ax.text(left + w + 0.012, y, fmt_num(int(v)),
-                fontsize=12, color=GOLD if rank < 3 else TEXT, va="center",
+        ax.add_patch(Rectangle((left, y - step * 0.28), w, step * 0.56,
+                               facecolor=it["color"], edgecolor="none",
+                               alpha=a * 0.92, transform=ax.transAxes, zorder=3))
+        ax.text(left + w + 0.010, y, "+" + fmt_num(int(v)),
+                fontsize=11, color=GOLD if rank < 3 else TEXT, va="center",
                 fontweight="bold" if rank < 3 else "normal", alpha=a,
                 transform=ax.transAxes, zorder=3)
+        ax.text(0.985, y, fmt_num(int(it["start"] + v)), fontsize=10.5,
+                color=DIM, va="center", ha="right", alpha=a,
+                transform=ax.transAxes, zorder=3)
+
+    # 底部日期轴(约一周): 基准线 + 每日刻度 + 当前进度
+    ax.plot([left, right], [0.115, 0.115], color=BORDER, lw=1.5, alpha=a)
+    span = (t1 - t0).total_seconds()
+    for day in [t0] + _day_ticks(t0, t1) + [t1]:
+        gx = left + (right - left) * (day - t0).total_seconds() / span
+        ax.plot([gx, gx], [0.115, 0.125], color=BORDER, lw=1.2, alpha=a)
+        if day != t1:
+            ax.text(gx, 0.086, day.strftime("%m-%d"), fontsize=9, color=DIM,
+                    ha="center", alpha=a)
+    px = left + (right - left) * (fr["t"] - t0).total_seconds() / span
+    ax.plot([left, px], [0.115, 0.115], color=CYAN, lw=2.5, alpha=a, zorder=4)
+    ax.plot([px], [0.115], "o", color=CYAN, ms=6, alpha=a, zorder=4)
+    ax.text(px, 0.140, fr["t"].strftime("%m-%d"), fontsize=10, color=CYAN,
+            ha="center", fontweight="bold", alpha=a)
+
     # 图例
-    seen, lx = [], 0.34
+    seen, lx = [], 0.07
     for it in tops:
         if it["account"] in seen:
             continue
         seen.append(it["account"])
-        ax.plot([lx], [0.052], "s", color=it["color"], ms=8, alpha=a,
+        ax.plot([lx], [0.052], "s", color=it["color"], ms=7.5, alpha=a,
                 transform=ax.transAxes)
-        ax.text(lx + 0.014, 0.052, it["account"], fontsize=11.5, color=DIM,
+        ax.text(lx + 0.013, 0.052, it["account"], fontsize=10.5, color=DIM,
                 va="center", alpha=a, transform=ax.transAxes)
-        lx += 0.014 + 0.016 * len(it["account"]) + 0.03
+        lx += 0.013 + 0.015 * len(it["account"]) + 0.028
 
 
 def _sc_end(fig, i, n, data):
     ax = _full_ax(fig)
     p, a = _ease(i / max(1, n - 1)), _fade(i, n)
-    ax.text(0.5, 0.58, "本期报告 · 完", fontsize=40, color=TEXT, ha="center",
+    ax.text(0.5, 0.58, "本期报告 · 完", fontsize=38, color=TEXT, ha="center",
             fontweight="bold", alpha=a)
-    ax.plot([0.5 - 0.09 * p, 0.5 + 0.09 * p], [0.535, 0.535], color=CYAN,
-            lw=2.5, alpha=a)
-    ax.text(0.5, 0.46, f"{data['ts_from'][:10]} ~ {data['ts_to'][:10]}",
-            fontsize=18, color=CYAN, ha="center", alpha=a * p)
-    ax.text(0.5, 0.38, f"生成于 {datetime.now():%Y-%m-%d %H:%M} · 数据来自本地快照",
-            fontsize=13, color=DIM, ha="center", alpha=a * p)
+    ax.plot([0.5 - 0.08 * p, 0.5 + 0.08 * p], [0.538, 0.538], color=CYAN,
+            lw=2.2, alpha=a)
+    ax.text(0.5, 0.465, _period_str(data), fontsize=17, color=CYAN,
+            ha="center", alpha=a * p)
+    ax.text(0.5, 0.395, f"生成于 {datetime.now():%Y-%m-%d %H:%M} · 数据来自本地快照",
+            fontsize=12.5, color=DIM, ha="center", alpha=a * p)
 
 
 _DRAW = {"title": _sc_title, "overview": _sc_overview, "trend": _sc_trend,
-         "bars": _sc_bars, "end": _sc_end}
+         "gains": _sc_gains, "bars": _sc_bars, "end": _sc_end}
 
 
 # ---------- 对外入口 ----------
