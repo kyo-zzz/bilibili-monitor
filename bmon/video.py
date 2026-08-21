@@ -306,6 +306,36 @@ def _day_ticks(t0, t1):
     return out
 
 
+def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn):
+    """预计算右侧标签时间轴: 标签纵向位置跟随各自折线当前值(一一对应),
+    帧间平滑过渡且互相防重叠; 同时返回各视频连续插值后的当前数值(跳字用)."""
+    gap = 0.075
+
+    def vy(v):
+        return y0 + (y1 - y0) * (v - lo) / (hi - lo) if hi > lo else y0
+
+    frames, ys = [], None
+    denom = max(1, n - 90)
+    for i in range(n):
+        st = t0 + (t1 - t0) * min(1.0, i / denom)
+        vals = {it["bvid"]: val_fn(it, st) for it in trend}
+        targets = {b: vy(v) for b, v in vals.items()}
+        adj, prev = {}, None
+        for b in sorted(vals, key=lambda b: -vals[b]):
+            ty = targets[b]
+            if prev is not None:
+                ty = min(ty, prev - gap)
+            adj[b] = max(ty, y0 + 0.01)
+            prev = adj[b]
+        if ys is None:
+            ys = dict(adj)
+        else:
+            for b in ys:
+                ys[b] += (adj[b] - ys[b]) * 0.3
+        frames.append({"vals": vals, "ys": dict(ys)})
+    return frames
+
+
 def _sc_trend(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
@@ -344,14 +374,14 @@ def _sc_trend(fig, i, n, data):
             ax.plot([x0, x1], [vy(v)] * 2, color=GRID, lw=1, alpha=a)
 
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
-    for it in trend:
+    for k, it in enumerate(trend):
         f0 = it["pts"][0][0]
         if sweep < f0:
             continue
         # 快照点间线性插值采样, 折线随扫描平滑生长(不逐点跳出)
         xs, ys = [], []
-        for k in range(121):
-            t = f0 + (sweep - f0) * k / 120
+        for k2 in range(121):
+            t = f0 + (sweep - f0) * k2 / 120
             xs.append(tx(t))
             ys.append(vy(_interp_value(it["pts"], t)))
         ax.plot(xs, ys, color=it["color"], lw=2.8, alpha=a * 0.95,
@@ -364,14 +394,20 @@ def _sc_trend(fig, i, n, data):
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
 
-    for k, it in enumerate(trend):
-        sy = 0.78 - k * 0.082
-        cur = next((v for t, v in reversed(it["pts"]) if t <= sweep), None)
+    # 右侧标签跟随各自折线端点(一一对应), 数值随插值连续跳字
+    side = data.get("_side_trend")
+    if side is None:
+        side = data["_side_trend"] = _side_timeline(
+            trend, t0, t1, n, lo, hi, y0, y1,
+            lambda it, t: _interp_value(it["pts"], t))
+    fr = side[min(i, len(side) - 1)]
+    for it in trend:
+        sy = fr["ys"][it["bvid"]]
         ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
                 transform=ax.transAxes)
         ax.text(0.755, sy, _wrap2(it["title"], 24), fontsize=9.5, color=TEXT,
                 va="center", linespacing=1.15, alpha=a, transform=ax.transAxes)
-        ax.text(0.985, sy, fmt_num(cur) if cur else "—", fontsize=11.5,
+        ax.text(0.985, sy, fmt_num(int(fr["vals"][it["bvid"]])), fontsize=11.5,
                 color=it["color"], va="center", ha="right",
                 fontweight="bold", alpha=a, transform=ax.transAxes)
 
@@ -428,15 +464,20 @@ def _sc_gains_videos(fig, i, n, data):
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
 
-    for k, it in enumerate(trend):
-        sy = 0.78 - k * 0.082
-        cur = next((v - it["start"] for t, v in reversed(it["pts"]) if t <= sweep), 0)
+    side = data.get("_side_gains")
+    if side is None:
+        side = data["_side_gains"] = _side_timeline(
+            trend, t0, t1, n, 0, gmax, y0, y1,
+            lambda it, t: _interp_value(it["pts"], t) - it["start"])
+    fr = side[min(i, len(side) - 1)]
+    for it in trend:
+        sy = fr["ys"][it["bvid"]]
         ax.plot([0.735], [sy], "o", color=it["color"], ms=7, alpha=a,
                 transform=ax.transAxes)
         ax.text(0.755, sy, _wrap2(it["title"], 24), fontsize=9.5, color=TEXT,
                 va="center", linespacing=1.15, alpha=a, transform=ax.transAxes)
-        ax.text(0.985, sy, "+" + fmt_num(max(0, int(cur))), fontsize=11.5,
-                color=GREEN, va="center", ha="right",
+        ax.text(0.985, sy, "+" + fmt_num(max(0, int(fr["vals"][it["bvid"]]))),
+                fontsize=11.5, color=GREEN, va="center", ha="right",
                 fontweight="bold", alpha=a, transform=ax.transAxes)
 
 
@@ -478,10 +519,11 @@ def _sc_gains_games(fig, i, n, data):
         if not pts:
             continue
         xs, ys = [tx(t) for t, _ in pts], [vy(v) for _, v in pts]
+        # 合计曲线为插值采样(121点), 不加标记避免"点串"观感, 保持平滑曲线
         ax.plot(xs, ys, color=g["color"], lw=3.4, alpha=a,
-                marker="o", ms=6, markerfacecolor=g["color"],
-                markeredgecolor=BG, markeredgewidth=0.8,
                 solid_capstyle="round", zorder=4)
+        ax.plot(xs[-1], ys[-1], "o", color=g["color"], ms=7, alpha=a,
+                markeredgecolor=BG, markeredgewidth=0.8, zorder=4)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, ls="--", alpha=a * 0.45)
