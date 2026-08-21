@@ -92,3 +92,71 @@ GUI 已覆盖"脚本抓取 + 数据查看"全部诉求：
 
 - `output/verify_1_overview.png`（总览页）
 - `output/verify_2_videos_filtered_PV.png`（视频筛选页）
+
+## 任务 4：GitHub 开源（已完成）
+
+**完成内容**
+
+- `git init`（main 分支）并完成首个提交（28 个文件，3702 行）
+- 公开仓库已创建并推送：**https://github.com/kyo-zzz/bilibili-monitor**
+
+**安全与文件处理**
+
+- `.gitignore` 追加：`config.yaml`（含 cookie 等敏感字段）、`运行截图.png`（无关截图）
+- 新增 `config.example.yaml` 配置模板（头部注明"复制为 config.yaml"），README 同步更新首次使用步骤
+- 新增 MIT `LICENSE`（© kyo-zzz）
+- 提交前经 `git status` 核验：`data/`、`.venv/`、`output/`、`config.yaml` 均未入库
+
+**README 更新**
+
+- 新增「本地 Web GUI」「快照查询」两个章节，命令一览表补 `snapshot` / `gui`
+- 项目结构补 `webui.py`、`templates/`、`static/`、`docs/`
+- 新增 Web GUI 截图两张（`docs/screenshots/webui_overview.png`、`webui_videos.png`）并在 README 嵌入
+- 末尾新增许可证节
+
+**验证结果**
+
+- `gh api` 确认仓库 visibility=public、default_branch=main
+- 远程文件清单确认无敏感文件：仅 bmon/templates/static/docs/config.example.yaml 等
+
+## 任务 5：网页部署方案（方案稿已交付，待审阅）
+
+**交付物**：`docs/deploy-plan.md`（仅方案，未实施）
+
+- 核心约束分析：B站风控封杀数据中心 IP → 采集必须留在本地，云端只做展示
+- 方案 A（推荐）：本地采集 + 静态报告发布到 GitHub Pages / Cloudflare Pages，零成本零风控风险
+- 方案 B：内网穿透（Cloudflare Tunnel / Tailscale / frp）远程直连本机 Web GUI，数据不出本机、改动最小
+- 方案 C：云服务器 Flask+gunicorn+nginx，附风控风险与成本分析，不推荐作主方案
+- 含三方案对比表、推荐结论与待确认问题清单
+
+## 任务 6：自动视频生成方案（方案稿已交付，待审阅）
+
+**交付物**：`docs/video-gen-plan.md`（仅方案，未实施）
+
+- 视频形态：30~60 秒 1080p 数据周报短片（片头→总览数字→图表入场→Top榜→片尾）
+- 方案 A（推荐）：新增 `bmon/video.py` + `main.py video` 子命令，
+  moviepy/Pillow 合成，数据与图表同源，纯 Python 无网络依赖
+- 方案 B：Remotion（React 程序化视频），动效上限高，作为二期升级路线
+- 方案 C：纯 FFmpeg 幻灯片，可作快速原型兜底
+- 含自动投稿 B站的可行性说明与风控/登录态风险提示（建议人工投稿）
+
+## 总结与后续建议
+
+**本轮全部六项任务完成：**
+
+| # | 任务 | 状态 |
+|---|---|---|
+| 1 | 图表标题完整显示 + 美化 | 已完成并验证 |
+| 2 | 快照功能验证与润色 | 已完成（CLI + Web 双入口均验证通过） |
+| 3 | Web GUI 验证与润色 | 已完成（五页浏览器点检全部通过） |
+| 4 | GitHub 开源 | 已完成：https://github.com/kyo-zzz/bilibili-monitor |
+| 5 | 网页部署方案 | 方案稿已交付（docs/deploy-plan.md），待审阅 |
+| 6 | 自动视频生成方案 | 方案稿已交付（docs/video-gen-plan.md），待审阅 |
+
+**后续建议（按优先级）**
+
+1. 审阅 `docs/deploy-plan.md` 与 `docs/video-gen-plan.md`，确认选型后进入实施
+2. 部署建议先启用方案 B（内网穿透，当天可用），二期再上静态公开页
+3. 视频生成一期用 moviepy，数据积累越多（快照历史越长）周报内容越丰富
+4. 快照数据从 2026-08-16 开始积累，建议保持每日 21:30 计划任务持续运行，
+   两周后快照查询/增量对比的价值会显著提升
