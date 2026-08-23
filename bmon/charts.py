@@ -3,6 +3,7 @@ import glob
 import html
 import logging
 import os
+import re
 import unicodedata
 from datetime import datetime, timedelta
 
@@ -282,13 +283,50 @@ def _top(ax, rows, n, colors, labels, title, key=None, note="暂无数据"):
               loc="lower right", ncols=len(present), fontsize=9, frameon=False)
 
 
-def _save(fig, cfg, filename):
-    outdir = cfg["charts"]["output_dir"]
+PERIOD_TITLES = {"daily": "每日", "weekly": "每周", "monthly": "每月"}
+
+
+def _save(fig, cfg, kind, filename):
+    """按周期写入子目录 daily/ weekly/ monthly/, 便于归档与展示分区."""
+    outdir = os.path.join(cfg["charts"]["output_dir"], kind)
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, filename)
     fig.savefig(path)
     plt.close(fig)
     return path
+
+
+def scan_chart_groups(cfg):
+    """扫描图表目录并按周期分组(每组按时间倒序).
+
+    同时把旧版平铺在根目录的 *_daily_* / *_weekly_* / *_monthly_* 图
+    自动迁移进对应子目录, 老数据无缝纳入分区.
+    """
+    outdir = cfg["charts"]["output_dir"]
+    groups = {k: [] for k in ("daily", "weekly", "monthly")}
+    if not os.path.isdir(outdir):
+        return groups
+    for fn in os.listdir(outdir):
+        if not fn.endswith(".png"):
+            continue
+        m = re.search(r"_(daily|weekly|monthly)_", fn)
+        if not m:
+            continue
+        kind = m.group(1)
+        sub = os.path.join(outdir, kind)
+        os.makedirs(sub, exist_ok=True)
+        try:
+            os.replace(os.path.join(outdir, fn), os.path.join(sub, fn))
+        except OSError:
+            pass
+    for kind in groups:
+        sub = os.path.join(outdir, kind)
+        if os.path.isdir(sub):
+            files = [f for f in os.listdir(sub) if f.endswith(".png")]
+            files.sort(key=lambda f: os.path.getmtime(os.path.join(sub, f)),
+                       reverse=True)
+            groups[kind] = files
+    return groups
 
 
 # ---------- 对外入口 ----------
@@ -336,7 +374,7 @@ def make_dashboard(db, cfg, kind, rows):
          note="本期暂无增长数据")
 
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    return _save(fig, cfg, f"dashboard_{kind}_{period_labels[-1]}.png")
+    return _save(fig, cfg, kind, f"dashboard_{kind}_{period_labels[-1]}.png")
 
 
 def make_single(db, cfg, kind, ctype, rows):
@@ -373,33 +411,44 @@ def make_single(db, cfg, kind, ctype, rows):
         raise ValueError(f"未知图表类型: {ctype}")
 
     fig.tight_layout()
-    return _save(fig, cfg, f"{ctype}_{kind}_{period_labels[-1]}.png")
+    return _save(fig, cfg, kind, f"{ctype}_{kind}_{period_labels[-1]}.png")
 
 
 def write_index(cfg):
+    groups = scan_chart_groups(cfg)
     outdir = cfg["charts"]["output_dir"]
     os.makedirs(outdir, exist_ok=True)
-    files = sorted(glob.glob(os.path.join(outdir, "*.png")),
-                   key=os.path.getmtime, reverse=True)[:60]
     ref = int(cfg["charts"].get("auto_refresh_seconds") or 0)
     meta = f'<meta http-equiv="refresh" content="{ref}">' if ref > 0 else ""
-    items = "".join(
-        f'<figure><img src="{html.escape(os.path.basename(f))}" loading="lazy">'
-        f'<figcaption>{html.escape(os.path.basename(f)[:-4].replace("_", " · "))}</figcaption></figure>'
-        for f in files)
+    total = sum(len(v) for v in groups.values())
+    sections, order = [], ["daily", "weekly", "monthly"]
+    for kind in order:
+        files = groups[kind][:20]
+        if not files:
+            continue
+        figs = "".join(
+            f'<figure><img src="{kind}/{html.escape(fn)}" loading="lazy">'
+            f'<figcaption>{html.escape(fn[:-4].replace("_", " · "))}</figcaption></figure>'
+            for fn in files)
+        sections.append(
+            f'<h2 class="sec">{PERIOD_TITLES[kind]}图表'
+            f'<span class="cnt">{len(groups[kind])} 张</span></h2>' + figs)
     doc = (
         "<!doctype html><html><head><meta charset=\"utf-8\">" + meta +
         "<title>B站官号视频数据监测</title><style>"
         "body{font-family:'Microsoft YaHei',sans-serif;background:#101418;color:#e8e8e8;"
         "margin:24px;max-width:1500px}"
         "h1{font-size:20px}p{color:#889}"
-        "figure{margin:0 0 36px}img{max-width:100%;border-radius:8px;background:#fff}"
+        "h2.sec{font-size:16px;margin:36px 0 14px;border-left:4px solid #00a1d6;"
+        "padding-left:10px}"
+        "h2 .cnt{font-size:12px;color:#778;margin-left:10px;font-weight:400}"
+        "figure{margin:0 0 32px}img{max-width:100%;border-radius:8px;background:#fff}"
         "figcaption{color:#778;font-size:13px;margin-top:6px}"
         "</style></head><body>"
         "<h1>B站官号视频数据监测 · 自动图表</h1>"
-        f"<p>共 {len(files)} 张 · 由监测系统自动更新"
+        f"<p>共 {total} 张 · 按 日/周/月 分区 · 由监测系统自动更新"
         + (" · 页面每 " + str(ref) + " 秒自动刷新" if ref > 0 else "")
-        + "</p>" + items + "</body></html>")
+        + "</p>" + "".join(sections) + "</body></html>")
     path = os.path.join(outdir, "index.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write(doc)

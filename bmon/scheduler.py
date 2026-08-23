@@ -25,6 +25,7 @@ DEFAULT_SCHEDULE = {
     "window_end": "23:59",
 }
 MIN_GAP_SECONDS = 10 * 60      # 两次采集最小间隔, 防止重叠触发
+CATCHUP_WINDOW = timedelta(hours=3)  # 时间点错过的补跑窗口(进程不在/睡眠等)
 
 
 def _data_dir(cfg):
@@ -37,6 +38,27 @@ def schedule_path(cfg):
 
 def _state_path(cfg):
     return os.path.join(_data_dir(cfg), "schedule_state.json")
+
+
+def last_collection(cfg):
+    """最近一次采集的开始时间: 取 调度器状态 与 monitor 的 state.json 较大者.
+
+    state.json 的 last_cycle_at 由所有采集路径(计划任务/手动/GUI)统一写入,
+    以此为准可避免多套机制并存时重复触发间隔采集.
+    """
+    best = None
+    for path, key in ((_state_path(cfg), "last_run"),
+                      (os.path.join(_data_dir(cfg), "state.json"), "last_cycle_at")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                v = json.load(f).get(key)
+            if v:
+                dt = datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+                if best is None or dt > best:
+                    best = dt
+        except Exception:
+            pass
+    return best
 
 
 def load_schedule(cfg):
@@ -177,13 +199,18 @@ class Scheduler:
         sch = load_schedule(self.cfg)
         state = _load_state(self.cfg)
         reason = None
-        hm = now.strftime("%H:%M")
         today = now.strftime("%Y-%m-%d")
         fired_today = state.get("fired", {}).get(today, [])
         if sch.get("times_enabled", True):
             for t in sch.get("times", []):
-                if t == hm and t not in fired_today:
-                    reason = f"定时时间点 {t}"
+                if t in fired_today:
+                    continue
+                hm = _parse_hhmm(t)
+                sched_dt = now.replace(hour=hm.hour, minute=hm.minute,
+                                       second=0, microsecond=0)
+                if sched_dt <= now and now - sched_dt <= CATCHUP_WINDOW:
+                    late = now - sched_dt >= timedelta(minutes=2)
+                    reason = f"定时时间点 {t}" + ("(错过补跑)" if late else "")
                     fired_today.append(t)
                     break
         if reason is None and sch.get("interval_enabled") \
@@ -192,8 +219,7 @@ class Scheduler:
             we = _parse_hhmm(sch.get("window_end", "23:59"))
             cur = now.hour * 60 + now.minute
             in_win = ws.hour * 60 + ws.minute <= cur <= we.hour * 60 + we.minute
-            last = state.get("last_run")
-            last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S") if last else None
+            last_dt = last_collection(self.cfg)
             if in_win and (last_dt is None or
                            (now - last_dt).total_seconds() >=
                            int(sch["interval_minutes"]) * 60):

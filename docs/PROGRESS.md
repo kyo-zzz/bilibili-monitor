@@ -396,3 +396,60 @@ GUI 已覆盖"脚本抓取 + 数据查看"全部诉求：
 - 抽帧核验：扫描中段标签与折线端点对齐、数值为中间值（跳字生效）；
   分游戏幕为平滑曲线无点串
 - 分镜文档行号全部重新校准，新增标签跟随参数说明（gap/平滑系数）
+
+---
+
+# 第十轮（2026-08-24）：稳定性加固 + 视频报告GUI + 图表分区归档
+
+## 1：P0-1 采集跨进程互斥锁（已完成）
+
+- 新增 `bmon/lock.py`：`Monitor.run_once` 入口处以 O_EXCL 创建 `data/fetch.lock`
+  （内容 pid+时间戳，TTL 30 分钟自动失效），finally 释放
+- 效果：Windows 计划任务 BiliMonDailyFetch、GUI 内置调度器、`main.py scheduler`、
+  手动 CLI 四套触发机制并存时，同一时刻只有一轮采集真正执行，
+  其余秒级跳过并记录日志——彻底消除 21:30 双轨重复触发竞态
+- 实测：并发两个 `main.py fetch`，第二个立即输出
+  "另一采集进程正在运行(fetch.lock), 本轮跳过" 并正常退出
+
+## 2：P1 调度器与数据库健壮性（已完成）
+
+- 调度器 `tick`：① 时间点模式新增**错过补跑**（3 小时窗口内启动即补触发）；
+  ② 间隔模式的"最近采集"改读 `last_collection()`（取调度器状态与
+  monitor `state.json` 的较大者），跨进程感知手动/计划任务采集
+- SQLite：连接时启用 `PRAGMA journal_mode=WAL` + `busy_timeout=5000`，
+  GUI 读与采集写并发不再互相阻塞；`run_once` 账号循环补捕获
+  `sqlite3.OperationalError` 与未预期异常（单账号故障不再中断整轮）
+
+## 3：P2 工程化（已完成）
+
+- **自动备份**：新增 `bmon/backup.py`（sqlite backup API，WAL 下快照一致）；
+  每轮采集有新数据时自动备份到 `data/backup/`，保留最近 `backup_keep` 份（默认5，0=关闭）；
+  另有 `main.py backup [--keep N]` 手动命令
+- **日志轮转**：`setup_logging` 改用 RotatingFileHandler（2MB×3）
+- **依赖钉版**：requirements.txt 按实测版本收紧下限
+- **单元测试**：新增 `tests/test_core.py`（13 例：快照期初/期末/增量语义、
+  筛选排序、图表折行不丢字、视频 `_wrap2/_bar_axis/_interp_value`、
+  调度计划校验、互斥锁互斥与 TTL 过期），全部通过，无网络依赖
+- **CI**：`.github/workflows/ci.yml`（push/PR 触发：compileall + pytest）
+
+## 4：视频报告 Web GUI 页（已完成）
+
+- Web GUI 新增「视频报告」页（`/video`）：
+  参数表单（全部历史 / 最近N天 / 自定义时段 + 帧率 24/30/60）→
+  后台子进程渲染（约 1-2 分钟，页面 8 秒自刷显示渲染状态）→
+  历史视频列表（内嵌播放器预览、支持进度条拖动的 206 Range 响应、下载链接、按时间倒序）
+- 子进程启动统一为 `_spawn()`（fetch/chart/video 三类，各自防重复触发）
+
+## 5：图表按周期分区归档（已完成）
+
+- `charts._save` 改为写入 `output/charts/{daily,weekly,monthly}/` 子目录
+- `scan_chart_groups()`：扫描分组 + **旧版平铺图自动迁移**进对应子目录
+- `index.html` 索引页按 日/周/月 分区展示（带张数标记）；
+  Web GUI 总览页同步分区展示，不再混作一堆
+- 实测：`chart --period all` 后旧图全部自动归类，新图按目录落盘
+
+## 6：验证汇总
+
+- pytest 13/13 通过；compileall 通过
+- 真实并发锁验证通过；GUI 六页全部 200；视频页渲染-预览-下载全链路通过
+  （新产出 `report_20260820-20260823.mp4`）；WAL 确认生效

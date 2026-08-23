@@ -36,18 +36,25 @@
 </div>
 
 <div class="card">
-  <div class="card-title">自动生成的图表 <span class="dim">（每天采集后自动更新 · 更高清原图见 output/charts/index.html）</span></div>
-  {% if chart_files %}
-  <div class="chart-list">
-    {% for f in chart_files %}
-    <figure>
-      <img src="/charts/{{ f }}" loading="lazy" alt="{{ f }}">
-      <figcaption>{{ f[:-4] | replace('_', ' · ') }}</figcaption>
-    </figure>
-    {% endfor %}
-  </div>
-  {% else %}
+  <div class="card-title">自动生成的图表 <span class="dim">（每天采集后自动更新 · 按 日/周/月 分区 · 原图见 output/charts/index.html）</span></div>
+  {% set secs = [('daily','日报'), ('weekly','周报'), ('monthly','月报')] %}
+  {% set found = [] %}
+  {% for kind, label in secs if chart_groups.get(kind) %}{% if found.append(1) %}{% endif %}{% endfor %}
+  {% if not found %}
   <div class="empty">暂无图表，请先在「运行控制」执行一次采集</div>
   {% endif %}
+  {% for kind, label in secs %}
+    {% if chart_groups.get(kind) %}
+    <div class="chart-sec-title">{{ label }} <span class="dim">（{{ chart_groups[kind] | length }} 张）</span></div>
+    <div class="chart-list">
+      {% for f in chart_groups[kind] %}
+      <figure>
+        <img src="/charts/{{ kind }}/{{ f }}" loading="lazy" alt="{{ f }}">
+        <figcaption>{{ f[:-4] | replace('_', ' · ') }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
 </div>
 {% endblock %}

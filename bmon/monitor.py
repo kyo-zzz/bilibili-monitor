@@ -2,10 +2,12 @@
 import json
 import logging
 import os
+import sqlite3
 import time
 import traceback
 from datetime import datetime, timedelta
 
+from . import lock as lockmod
 from .api import ApiError, BiliApi, RiskControlError
 from .config import enabled_accounts
 from .storage import Database, ts_str
@@ -216,6 +218,18 @@ class Monitor:
 
     # ---------- 周期 ----------
     def run_once(self, full=False):
+        """跨进程互斥: 计划任务/GUI调度器/手动CLI 并存时, 同一时刻只跑一轮."""
+        lock_path = os.path.join(
+            os.path.dirname(self.cfg["storage"]["db_path"]), "fetch.lock")
+        if not lockmod.acquire(lock_path, ttl=1800):
+            log.warning("另一采集进程正在运行(fetch.lock), 本轮跳过")
+            return []
+        try:
+            return self._run_once_locked(full)
+        finally:
+            lockmod.release(lock_path)
+
+    def _run_once_locked(self, full=False):
         now = datetime.now()
         accs = enabled_accounts(self.cfg)
         if not accs:
@@ -233,6 +247,12 @@ class Monitor:
                 log.error("账号 %s 触发风控, 本轮跳过: %s", acc.get("name"), e)
             except ApiError as e:
                 log.error("账号 %s 接口异常, 本轮跳过: %s", acc.get("name"), e)
+            except sqlite3.OperationalError as e:
+                log.error("账号 %s 数据库繁忙/锁定, 本轮跳过(下轮自动恢复): %s",
+                          acc.get("name"), e)
+            except Exception:
+                log.error("账号 %s 采集出现未预期异常(已跳过):\n%s",
+                          acc.get("name"), traceback.format_exc())
         self._auto_charts()
         self._write_state(now, results)
         v_after = self.db.con.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
@@ -242,6 +262,17 @@ class Monitor:
         log.info("====== 本轮采集完成: 耗时%.0fs | 视频%d(新增+%d) | 快照%d(新增+%d) | %s ======",
                  time.time() - t0, v_after, v_after - v_before,
                  s_after, s_after - s_before, detail)
+        # 数据有新增时自动备份(保最近 N 份)
+        if s_after > s_before:
+            keep = int(self.cfg["storage"].get("backup_keep", 5) or 0)
+            if keep > 0:
+                try:
+                    from .backup import backup_db
+                    p = backup_db(self.cfg["storage"]["db_path"], keep)
+                    if p:
+                        log.info("数据库已自动备份: %s", p)
+                except Exception:
+                    log.error("自动备份失败:\n%s", traceback.format_exc())
         return results
 
     def _auto_charts(self):

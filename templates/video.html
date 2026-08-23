@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}视频报告{% endblock %}
+{% block content %}
+<h1 class="page-title">视频报告 <span class="dim">把监测期的播放量变化渲染成 1080p MP4 动效短片</span></h1>
+
+<div class="cards">
+  <div class="card stat">
+    <div class="stat-label">渲染状态</div>
+    <div class="stat-value sm">{{ '● 渲染中…' if running else '● 空闲' }}</div>
+    <div class="dim">约 1-2 分钟, 完成后自动出现在下方列表</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">已有视频</div>
+    <div class="stat-value sm">{{ vids | length }} 支</div>
+    <div class="dim">保存于 output/videos/</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">生成新视频</div>
+  <form method="post" action="/video/run" class="video-form">
+    <div class="sched-row">
+      <label class="chk"><input type="radio" name="mode" value="all" checked onchange="vfMode()">全部快照历史</label>
+      <label class="chk"><input type="radio" name="mode" value="days" onchange="vfMode()">最近</label>
+      <input type="number" name="days" value="7" min="1" max="365" style="width:80px" disabled>
+      <span class="dim">天</span>
+      <label class="chk"><input type="radio" name="mode" value="range" onchange="vfMode()">自定义时段</label>
+      <input type="datetime-local" name="from" value="" disabled>
+      <span class="dim">至</span>
+      <input type="datetime-local" name="to" value="" disabled>
+    </div>
+    <div class="sched-row">
+      <span class="dim">帧率</span>
+      <select name="fps">
+        <option value="24">24 fps</option>
+        <option value="30" selected>30 fps</option>
+        <option value="60">60 fps</option>
+      </select>
+      <button class="btn primary" type="submit" {{ 'disabled' if running }}>
+        {{ '渲染中, 请稍候…' if running else '开始生成' }}</button>
+      <span class="dim">场景: 片头 → 总览 → 播放走势 → 净增量(视频/分游戏) → 竞跑 → 片尾</span>
+    </div>
+  </form>
+  {% if err %}<div class="alert" style="margin-top:12px">{{ err }}</div>{% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">历史视频 <span class="dim">（点击播放预览, 或右键另存）</span></div>
+  {% for v in vids %}
+  <div class="video-item">
+    <video controls preload="metadata" src="/video-files/{{ v.name }}"></video>
+    <div class="video-meta">
+      <div class="video-name" title="{{ v.name }}">{{ v.name }}</div>
+      <div class="dim">{{ v.mtime }} · {{ '%.1f' % v.size_mb }} MB ·
+        <a href="/video-files/{{ v.name }}" download>下载</a></div>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty">还没有生成过视频, 在上方选择时段后点击「开始生成」</div>
+  {% endfor %}
+</div>
+
+<script>
+function vfMode() {
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  document.querySelector('input[name=days]').disabled = mode !== 'days';
+  document.querySelector('input[name=from]').disabled = mode !== 'range';
+  document.querySelector('input[name=to]').disabled = mode !== 'range';
+}
+{{ 'setTimeout(() => location.reload(), 8000);' if running else '' }}
+</script>
+{% endblock %}

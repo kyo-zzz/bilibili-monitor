@@ -24,7 +24,22 @@ from .util import fmt_num
 log = logging.getLogger("bmon.webui")
 
 MAIN_PY = os.path.join(cfgmod.ROOT, "main.py")
-_procs = {"fetch": None, "chart": None}
+_procs = {"fetch": None, "chart": None, "video": None}
+
+
+def _spawn(cfg, key, args):
+    """以子进程执行 main.py 子命令(GUI按钮/视频生成共用); 已在跑则忽略."""
+    p = _procs.get(key)
+    if p and p.poll() is None:
+        return False
+    data_dir = os.path.dirname(cfg["storage"]["db_path"])
+    os.makedirs(data_dir, exist_ok=True)
+    logf = open(os.path.join(data_dir, "gui_runs.log"), "ab")
+    _procs[key] = subprocess.Popen(
+        [sys.executable, MAIN_PY] + args, cwd=cfgmod.ROOT,
+        stdout=logf, stderr=subprocess.STDOUT)
+    log.info("GUI 触发子进程: %s", args)
+    return True
 
 
 def _read_state(cfg):
@@ -94,9 +109,11 @@ def create_app(cfg):
         if os.path.isdir(outdir):
             chart_files = [f for f in os.listdir(outdir) if f.endswith(".png")]
         state = _read_state(cfg)
+        from .charts import scan_chart_groups
+        chart_groups = scan_chart_groups(cfg)
         return render_template(
             "index.html", per=list(per.values()), state=state,
-            chart_files=chart_files, videos_total=len(rows),
+            chart_groups=chart_groups, videos_total=len(rows),
             views_total=sum(r.get("latest_view") or 0 for r in rows),
             growth_total=sum(filters_mod.growth_of(r) or 0 for r in rows))
 
@@ -274,18 +291,62 @@ def create_app(cfg):
                 "full": ["fetch", "--full"]}
         if action not in cmds:
             abort(400)
-        key = "chart" if action == "chart" else "fetch"
-        p = _procs.get(key)
-        if p and p.poll() is None:
-            return redirect("/control")
-        data_dir = os.path.join(os.path.dirname(cfg["storage"]["db_path"]))
-        os.makedirs(data_dir, exist_ok=True)
-        logf = open(os.path.join(data_dir, "gui_runs.log"), "ab")
-        _procs[key] = subprocess.Popen(
-            [sys.executable, MAIN_PY] + cmds[action], cwd=cfgmod.ROOT,
-            stdout=logf, stderr=subprocess.STDOUT)
-        log.info("GUI 触发子进程: %s", cmds[action])
+        _spawn(cfg, "chart" if action == "chart" else "fetch", cmds[action])
         return redirect("/control")
+
+    # ---------- 视频报告 ----------
+    @app.route("/video")
+    def video_page():
+        vdir = os.path.join(cfgmod.ROOT, "output", "videos")
+        vids = []
+        if os.path.isdir(vdir):
+            for fn in os.listdir(vdir):
+                if not fn.endswith(".mp4"):
+                    continue
+                p = os.path.join(vdir, fn)
+                try:
+                    vids.append({
+                        "name": fn,
+                        "size_mb": os.path.getsize(p) / 1e6,
+                        "mtime": datetime.fromtimestamp(
+                            os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M"),
+                    })
+                except OSError:
+                    continue
+        vids.sort(key=lambda v: v["mtime"], reverse=True)
+        running = bool(_procs.get("video") and
+                       _procs["video"].poll() is None)
+        return render_template("video.html", vids=vids, running=running,
+                               err=request.args.get("err"))
+
+    @app.route("/video/run", methods=["POST"])
+    def video_run():
+        from urllib.parse import quote
+        mode = request.form.get("mode", "all")
+        try:
+            fps = max(10, min(60, int(request.form.get("fps") or 30)))
+        except ValueError:
+            fps = 30
+        cmd = ["video", "--fps", str(fps)]
+        if mode == "days":
+            try:
+                days = max(1, min(365, int(request.form.get("days") or 7)))
+            except ValueError:
+                days = 7
+            cmd += ["--days", str(days)]
+        elif mode == "range":
+            frm = _parse_time(request.form.get("from") or "")
+            to = _parse_time(request.form.get("to") or "")
+            if not frm or not to or frm >= to:
+                return redirect("/video?err=" + quote("时间范围无效: 起点需早于终点"))
+            cmd += ["--from", frm, "--to", to]
+        _spawn(cfg, "video", cmd)
+        return redirect("/video")
+
+    @app.route("/video-files/<path:fn>")
+    def video_file(fn):
+        return send_from_directory(
+            os.path.join(cfgmod.ROOT, "output", "videos"), fn, conditional=True)
 
     return app
 

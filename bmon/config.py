@@ -24,7 +24,7 @@ DEFAULTS = {
         "risk_control_wait_seconds": 30,
         "cookie": "",
     },
-    "storage": {"db_path": "data/monitor.db"},
+    "storage": {"db_path": "data/monitor.db", "backup_keep": 5},
     "charts": {
         "auto": True,
         "periods": ["daily", "weekly", "monthly"],
@@ -78,6 +78,7 @@ monitor:
 
 storage:
   db_path: data/monitor.db
+  backup_keep: 5                  # 每轮采集有新数据时自动备份, 保留最近N份(0=关闭)
 
 charts:
   auto: true                      # 每轮采集后自动重建图表

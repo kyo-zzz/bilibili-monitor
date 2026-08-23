@@ -56,6 +56,12 @@ class Database:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self.con = sqlite3.connect(path)
         self.con.row_factory = sqlite3.Row
+        # WAL: GUI 读与采集子进程写并发时不再互相阻塞
+        try:
+            self.con.execute("PRAGMA journal_mode=WAL")
+            self.con.execute("PRAGMA busy_timeout=5000")
+        except sqlite3.OperationalError:
+            pass
         self.con.executescript(SCHEMA)
         self._migrate()
         self.con.commit()

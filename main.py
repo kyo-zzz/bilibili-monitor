@@ -14,6 +14,7 @@ import argparse
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -40,7 +41,8 @@ def setup_logging(cfg):
         handlers.append(logging.StreamHandler(sys.stdout))
     if logfile:
         os.makedirs(os.path.dirname(os.path.abspath(logfile)), exist_ok=True)
-        handlers.append(logging.FileHandler(logfile, encoding="utf-8"))
+        handlers.append(RotatingFileHandler(
+            logfile, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"))
     if not handlers:
         handlers.append(logging.NullHandler())
     logging.basicConfig(
@@ -242,6 +244,14 @@ def cmd_scheduler(args):
         print("\n已停止定时采集调度。")
 
 
+def cmd_backup(args):
+    cfg = cfgmod.load_config(args.config)
+    setup_logging(cfg)
+    from bmon.backup import backup_db
+    path = backup_db(cfg["storage"]["db_path"], keep=args.keep)
+    print("已备份到:", path) if path else print("未找到数据库, 请先执行 fetch")
+
+
 def cmd_video(args):
     cfg = cfgmod.load_config(args.config)
     setup_logging(cfg)
@@ -316,6 +326,10 @@ def build_parser():
     pl.set_defaults(func=cmd_list)
 
     sub.add_parser("state", help="查看运行状态").set_defaults(func=cmd_state)
+
+    pbk = sub.add_parser("backup", help="手动备份数据库到 data/backup/")
+    pbk.add_argument("--keep", type=int, default=5, help="保留最近N份(默认5)")
+    pbk.set_defaults(func=cmd_backup)
 
     ps = sub.add_parser("snapshot", help="查询任意时刻/时段的播放量快照")
     ps.add_argument("--at", help="查询该时刻数据, 如 '2026-08-16 12:00'")
