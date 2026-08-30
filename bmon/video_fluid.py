@@ -21,7 +21,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
 from .util import fmt_num
-from .video import (SCENES, TSFMT, _bar_axis, _interp_value, _race_timeline,
+from .video import (SCENES, TSFMT, _bar_axis, _interp_value,
                     _side_timeline, _time_axis, _wrap2, collect, setup_font)
 
 log = logging.getLogger("bmon.video_fluid")
@@ -188,16 +188,17 @@ def _sc_title(fig, i, n, data):
     _bg(ax, i / 10)
     p = _ease(t)
     _outline(ax, 0.5, 0.78, "DATA REPORT", 88, a, ha="center")
-    ax.text(0.5, 0.585, "B站官号数据变化报告", fontsize=47, color=INK,
-            ha="center", fontweight="bold", alpha=a, zorder=4)
+    ax.text(0.5, 0.585, data.get("_title", "B站官号数据变化报告"),
+            fontsize=47, color=INK, ha="center", fontweight="bold",
+            alpha=a, zorder=4)
     # 渐变胶囊时期牌
     pw = 0.30 * p
     _chip(ax, 0.5 - pw / 2, 0.455, pw, 0.052, CYAN, VIOLET, alpha=a, z=4)
     ax.text(0.5, 0.481, f"{data['ts_from'][:10]}  →  {data['ts_to'][:10]}",
             fontsize=15.5, color="#071024", ha="center", va="center",
             fontweight="bold", alpha=a * p, zorder=5)
-    ax.text(0.5, 0.395, "VIEW / SNAPSHOT / LOCAL ARCHIVE", fontsize=11.5,
-            color=DIM, ha="center", family="DejaVu Sans Mono",
+    ax.text(0.5, 0.395, data.get("_subtitle", "VIEW / SNAPSHOT / LOCAL ARCHIVE"),
+            fontsize=11.5, color=DIM, ha="center", family="DejaVu Sans Mono",
             alpha=a * p, zorder=4)
     # 几何叠色块(左下) + 液态斑(右上)
     ax.add_patch(Rectangle((0.075, 0.135), 0.052, 0.052, facecolor=PINK,
@@ -374,7 +375,10 @@ def _trend_like(fig, i, n, data, kind):
             ax.plot([x0, x1], [vy(v)] * 2, color=GRID, lw=0.9,
                     linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
+    pad = data.get("_pads", {}).get(
+        "trend" if kind == "view" else "gains_videos",
+        max(6, int(n * 0.25)))
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
     for it in trend:
         f0 = it["pts"][0][0]
         if sweep < f0:
@@ -399,11 +403,14 @@ def _trend_like(fig, i, n, data, kind):
                 alpha=a * 0.5, zorder=3)
 
     key = "_side_trend" if kind == "view" else "_side_gains"
-    side = data.get(key)
+    pad = data.get("_pads", {}).get(
+        "trend" if kind == "view" else "gains_videos",
+        max(6, int(n * 0.25)))
     if side is None:
         fn = (lambda it, tt: _interp_value(it["pts"], tt)) if kind == "view" \
             else (lambda it, tt: _interp_value(it["pts"], tt) - it["start"])
-        side = data[key] = _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, fn)
+        side = data[key] = _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, fn,
+                                          side_pad=pad)
     fr = side[min(i, len(side) - 1)]
     for it in trend:
         sy = fr["ys"][it["bvid"]]
@@ -460,7 +467,8 @@ def _sc_gains_games(fig, i, n, data):
         ax.plot([x0, x1], [vy(gmax * frac)] * 2, color=GRID, lw=0.9,
                 linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - 90))
+    pad = data.get("_pads", {}).get("gains_games", max(6, int(n * 0.25)))
+    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
     for g in acc_gains:
         pts = [(tt, v) for tt, v in g["pts"] if tt <= sweep]
         if not pts:
@@ -502,7 +510,9 @@ def _sc_bars(fig, i, n, data):
         return
     race = data.get("_race")
     if race is None:
-        race = data["_race"] = _race_timeline(data, n)
+        pad_b = data.get("_pads", {}).get("bars", max(6, int(n * 0.25)))
+        race = data["_race"] = _race_timeline_local(
+            data, n, hold=max(4, int(n * 0.04)), hold_end=pad_b)
     fr = race[min(i, len(race) - 1)]
     t0, t1 = _time_axis(data)
     left, right = 0.30, 0.80
@@ -629,34 +639,85 @@ _DRAW = {"title": _sc_title, "overview": _sc_overview, "trend": _sc_trend,
          "bars": _sc_bars, "end": _sc_end}
 
 
-def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30):
-    """生成流体几何风数据报告视频, 返回 MP4 路径(不覆盖既有文件)."""
+def _race_timeline_local(data, n, hold=12, hold_end=90):
+    """条形竞跑时间轴(video.py 版的参数化本地实现):
+    hold 开头定格帧数 / hold_end 结尾定格帧数可由场景时长与扫描占比推导."""
+    tops = data["tops"]
+    t0, t1 = _time_axis(data)
+    sweep = max(1, n - hold - hold_end)
+    top_y, bot_y = 0.80, 0.185
+    step = (top_y - bot_y) / len(tops)
+    frames, ys = [], None
+    for i in range(n):
+        p = 0.0 if i < hold else (1.0 if i >= n - hold_end
+                                  else (i - hold) / sweep)
+        t = t0 + (t1 - t0) * p
+        vals = sorted(((it, _interp_value(it["pts"], t)) for it in tops),
+                      key=lambda x: -x[1])
+        target = {it["bvid"]: top_y - (rank + 0.5) * step
+                  for rank, (it, _) in enumerate(vals)}
+        if ys is None:
+            ys = dict(target)
+        else:
+            for k in ys:
+                ys[k] += (target[k] - ys[k]) * 0.28
+        frames.append({"t": t, "vals": vals, "ys": dict(ys)})
+    return frames
+
+
+def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
+    """生成流体几何风数据报告视频, 返回 MP4 路径(不覆盖既有文件).
+
+    opts 可调参数(全部可选):
+    - scene_seconds: {场景名: 秒} 覆盖各幕时长(0 则跳过该幕)
+    - sweep_frac:    每幕中"动画推进"所占比例(0.5~0.95, 越小越快/定格越久)
+    - trend_top / race_top: 走势与竞跑收录的视频数
+    - title / subtitle: 片头主/副标题文案
+    """
     setup_font(cfg["charts"].get("font"))
     try:
         import imageio_ffmpeg
         plt.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
     except ImportError:
         pass
+    opts = opts or {}
     data = collect(db, cfg, ts_from, ts_to)
     if not data["trend"] and not data["tops"]:
         raise SystemExit("该时段没有可用快照数据, 无法生成视频")
+
+    trend_top = max(1, int(opts.get("trend_top") or 8))
+    race_top = max(1, int(opts.get("race_top") or 10))
+    data["trend"] = sorted(data["trend"], key=lambda x: -x["end"])[:trend_top]
+    data["tops"] = sorted(data["tops"], key=lambda x: -x["growth"])[:race_top]
+    data["_title"] = str(opts.get("title") or "B站官号数据变化报告")
+    data["_subtitle"] = str(opts.get("subtitle") or
+                            "VIEW / SNAPSHOT / LOCAL ARCHIVE")
+    sweep_frac = min(0.95, max(0.4, float(opts.get("sweep_frac") or 0.75)))
+    scene_seconds = dict(opts.get("scene_seconds") or {})
+    # 清除可能缓存的旧时间轴(参数变更后必须重算)
+    for k in ("_side_trend", "_side_gains", "_race"):
+        data.pop(k, None)
 
     dpi = 150
     fig = plt.figure(figsize=(1920 / dpi, 1080 / dpi), dpi=dpi)
     fig.patch.set_facecolor(BG1)
 
     bounds, acc = [], 0
+    pads = {}
     for name, dur in SCENES:
-        nf = int(dur * fps)
+        dur = float(scene_seconds.get(name, dur))
+        nf = max(1, int(dur * fps)) if dur > 0 else 0
+        pads[name] = max(6, int(nf * (1 - sweep_frac)))
         bounds.append((name, acc, nf))
         acc += nf
     total = acc
+    data["_pads"] = pads
 
     def update(frame):
         fig.clear()
         fig.patch.set_facecolor(BG1)
         for name, start, nf in bounds:
-            if frame < start + nf:
+            if nf and start <= frame < start + nf:
                 _DRAW[name](fig, frame - start, nf, data)
                 break
         return []
@@ -675,7 +736,8 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30):
         while os.path.exists(out_path):
             k += 1
             out_path = os.path.join(outdir, f"{base}_{k}.mp4")
-    log.info("开始渲染流体几何风视频: %d 帧 @%dfps → %s", total, fps, out_path)
+    log.info("开始渲染流体几何风视频: %d 帧 @%dfps (scenes=%s sweep=%.2f) → %s",
+             total, fps, dict(scene_seconds), sweep_frac, out_path)
     anim.save(out_path, writer=writer)
     plt.close(fig)
     log.info("视频已生成: %s", out_path)

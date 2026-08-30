@@ -19,6 +19,7 @@
 <div class="card">
   <div class="card-title">生成新视频</div>
   <form method="post" action="/video/run" class="video-form">
+    <div class="form-sec">内容范围</div>
     <div class="sched-row">
       <label class="chk"><input type="radio" name="mode" value="all" checked onchange="vfMode()">全部快照历史</label>
       <label class="chk"><input type="radio" name="mode" value="days" onchange="vfMode()">最近</label>
@@ -29,6 +30,7 @@
       <span class="dim">至</span>
       <input type="datetime-local" name="to" value="" disabled>
     </div>
+    <div class="form-sec">基础参数</div>
     <div class="sched-row">
       <span class="dim">风格</span>
       <select name="style">
@@ -43,8 +45,35 @@
       </select>
       <button class="btn primary" type="submit" {{ 'disabled' if running }}>
         {{ '渲染中, 请稍候…' if running else '开始生成' }}</button>
-      <span class="dim">场景: 片头 → 总览 → 播放走势 → 净增量(视频/分游戏) → 竞跑 → 片尾</span>
     </div>
+    <div class="form-sec">场景与动效 <span class="dim">(以下仅「流体几何」风格生效, 留空即用默认)</span></div>
+    <div class="sched-row">
+      <span class="dim">动画推进占比</span>
+      <select name="sweep_frac">
+        <option value="">标准 75%</option>
+        <option value="0.6">快速 60% (定格更久)</option>
+        <option value="0.5">极快 50%</option>
+        <option value="0.85">舒缓 85%</option>
+      </select>
+      <span class="dim">走势收录</span>
+      <input type="number" name="trend_top" value="" min="1" max="15" placeholder="8" style="width:74px">
+      <span class="dim">竞跑收录</span>
+      <input type="number" name="race_top" value="" min="1" max="20" placeholder="10" style="width:74px">
+    </div>
+    <div class="scene-grid">
+      {% for key, name, dflt in [('title','片头',3), ('overview','总览',6.5),
+                                 ('trend','播放走势',10), ('gains_videos','净增量·视频',9),
+                                 ('gains_games','净增量·分游戏',8), ('bars','播放竞跑',10), ('end','片尾',3)] %}
+      <label>{{ name }}秒<input type="number" name="sc_{{ key }}" value="" min="0" max="30" step="0.5" placeholder="{{ dflt }}"></label>
+      {% endfor %}
+    </div>
+    <div class="sched-row">
+      <span class="dim">片头主标题</span>
+      <input type="text" name="vtitle" value="" maxlength="40" placeholder="B站官号数据变化报告" style="min-width:220px">
+      <span class="dim">副标题</span>
+      <input type="text" name="vsubtitle" value="" maxlength="50" placeholder="VIEW / SNAPSHOT / LOCAL ARCHIVE" style="min-width:220px">
+    </div>
+    <div class="dim note">场景: 片头 → 总览 → 播放走势 → 净增量(视频/分游戏) → 竞跑 → 片尾 · 时长设 0 可跳过该幕</div>
   </form>
   {% if err %}<div class="alert" style="margin-top:12px">{{ err }}</div>{% endif %}
 </div>

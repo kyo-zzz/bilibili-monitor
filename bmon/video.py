@@ -306,7 +306,7 @@ def _day_ticks(t0, t1):
     return out
 
 
-def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn):
+def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn, side_pad=90):
     """预计算右侧标签时间轴: 标签纵向位置跟随各自折线当前值(一一对应),
     帧间平滑过渡且互相防重叠; 同时返回各视频连续插值后的当前数值(跳字用)."""
     gap = 0.075
@@ -315,7 +315,7 @@ def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn):
         return y0 + (y1 - y0) * (v - lo) / (hi - lo) if hi > lo else y0
 
     frames, ys = [], None
-    denom = max(1, n - 90)
+    denom = max(1, n - side_pad)
     for i in range(n):
         st = t0 + (t1 - t0) * min(1.0, i / denom)
         vals = {it["bvid"]: val_fn(it, st) for it in trend}

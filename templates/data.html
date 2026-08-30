@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}数据中心{% endblock %}
+{% block content %}
+<h1 class="page-title">数据中心 <span class="dim">采集明细 · 数据分布 · 时段分析</span></h1>
+
+<!-- ============ 采集总览 ============ -->
+<div class="cards">
+  <div class="card stat g-cyan">
+    <div class="stat-label"><span class="glyph g-cyan"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg></span>快照总量</div>
+    <div class="stat-value">{{ total }}</div>
+  </div>
+  <div class="card stat g-pink">
+    <div class="stat-label"><span class="glyph g-pink"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 10.4l-4 2.3-1-1.7 3-1.8V6h2z"/></svg></span>采集轮次</div>
+    <div class="stat-value">{{ rounds | length }}+ 轮</div>
+  </div>
+  <div class="card stat g-violet">
+    <div class="stat-label"><span class="glyph g-violet"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg></span>覆盖范围</div>
+    <div class="stat-value sm" style="font-size:15px">{{ (first or '—')[:10] }} ~ {{ (last or '—')[:10] }}</div>
+  </div>
+  <div class="card stat g-mint">
+    <div class="stat-label"><span class="glyph g-mint"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></span>最近采集</div>
+    <div class="stat-value sm" style="font-size:15px">{{ last or '—' }}</div>
+  </div>
+</div>
+
+{% if gaps %}
+<div class="card alert">采集缺口: {{ gaps | join('、') }} —— 当日 21:30 计划任务未执行(电脑关机/睡眠)。缺失时段在图表中以插值估算补形, 不会写入数据库。</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">每日采集分布 <span class="dim">(快照条数 · 顶部数字为当日轮次)</span></div>
+  {% set maxn = (per_day | map(attribute='n') | max) if per_day else 1 %}
+  <div class="bar-chart">
+    {% for r in per_day %}
+    <div class="bar-col" title="{{ r.d }}: {{ r.n }} 条 / {{ r.rounds }} 轮 / {{ r.bvids }} 个视频">
+      <span class="bar-rounds">{{ r.rounds }}</span>
+      <div class="bar-fill" style="height: {{ (r.n / maxn * 100) | round(1) }}%"></div>
+      <span class="bar-label">{{ r.d[5:] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="cards two">
+  <div class="card">
+    <div class="card-title">账号数据分布</div>
+    {% for a in by_account %}
+    <div class="dist-row">
+      <span class="dist-name">{{ a.name }}</span>
+      <div class="dist-track"><div class="dist-fill" style="width: {{ (a.n / (by_account[0].n or 1) * 100) | round(1) }}%"></div></div>
+      <span class="dist-num">{{ a.n }} 条 · {{ a.rounds }} 轮</span>
+    </div>
+    {% endfor %}
+    <div class="card-title" style="margin-top:18px">采集来源构成</div>
+    {% for s in sources %}
+    <div class="dist-row">
+      <span class="dist-name">{{ {'detail': '逐视频详情接口', 'list': '列表接口', '未知': '未知'}.get(s.name, s.name) }}</span>
+      <div class="dist-track"><div class="dist-fill alt" style="width: {{ (s.n / (sources[0].n or 1) * 100) | round(1) }}%"></div></div>
+      <span class="dist-num">{{ s.n }} 条</span>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="card">
+    <div class="card-title">最近采集轮次 <span class="dim">(每轮快照条数)</span></div>
+    <div class="round-list">
+      {% for r in rounds %}
+      <div class="round-row"><span class="mono">{{ r.ts }}</span><span class="round-n">{{ r.n }} 条</span></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ============ 数据分析 ============ -->
+<div class="chart-sec-title">数据分析 <span class="dim">· 按粒度聚合最近 12 期{% if estimated %} · 含插值估算{% endif %}</span></div>
+
+<form class="filter-bar" method="get" action="/data" style="margin-bottom:16px">
+  <div class="mode-switch">
+    {% for g, label in [('daily','按日'), ('weekly','按周'), ('monthly','按月')] %}
+    <label class="chk"><input type="radio" name="gran" value="{{ g }}" {{ 'checked' if gran == g }} onchange="this.form.submit()">{{ label }}</label>
+    {% endfor %}
+  </div>
+</form>
+
+<div class="card">
+  <div class="card-title">各期播放增量(按账号) <span class="dim">快照差值{% if estimated %} · 末期为估算{% endif %}</span></div>
+  {% set maxg = namespace(v=1) %}
+  {% for pr in period_rows %}{% for name, g in pr.gains.items() %}{% if g > maxg.v %}{% set maxg.v = g %}{% endif %}{% endfor %}{% endfor %}
+  {% if period_rows %}
+  <table>
+    <thead><tr><th>期</th><th class="num">采集快照</th><th class="num">新发布</th>
+      {% for name in period_rows[0].gains %}<th class="num">{{ name }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for pr in period_rows %}
+      <tr>
+        <td class="mono-strong">{{ pr.label }}</td>
+        <td class="num dim">{{ pr.snaps }}</td>
+        <td class="num">{{ pr.published }}</td>
+        {% for name, g in pr.gains.items() %}
+        <td class="num">
+          <div class="cell-bar" style="width: {{ (g / maxg.v * 100) | round(1) }}%"></div>
+          <span class="{{ 'up' if g > 0 else 'dim' }}">{{ '+' ~ fmt_num(g) if g > 0 else '—' }}</span>
+        </td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">暂无数据</div>
+  {% endif %}
+</div>
+
+<div class="cards two">
+  <div class="card">
+    <div class="card-title">区间播放增长 Top10 <span class="dim">({{ periods[0][1].strftime('%m-%d') }} ~ {{ periods[-1][2].strftime('%m-%d') }})</span></div>
+    <table>
+      <thead><tr><th>#</th><th class="t-title">标题</th><th class="num">期初</th><th class="num">期末</th><th class="num">增量</th></tr></thead>
+      <tbody>
+      {% for r in top_growth %}
+        <tr>
+          <td class="mono-strong dim">{{ '%02d' % loop.index }}</td>
+          <td class="t-title"><a href="/trend?bvid={{ r.bvid }}">{{ r.title }}</a></td>
+          <td class="num dim">{{ fmt_num(r.first_view) }}</td>
+          <td class="num">{{ fmt_num(r.latest_view) }}</td>
+          <td class="num up strong">+{{ fmt_num(growth_of(r)) }}</td>
+        </tr>
+      {% else %}<tr><td colspan="5" class="empty">暂无数据</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">发布时间习惯 <span class="dim">(全部监测视频)</span></div>
+    <div class="bar-chart small">
+      {% set maxh = hour_bins | max %}
+      {% for h in hour_bins %}
+      <div class="bar-col" title="{{ h }}:00 — {{ h }} 点发布 {{ h }} 个" >
+        <div class="bar-fill butter" style="height: {{ (h / (maxh or 1) * 100) | round(1) }}%"></div>
+        <span class="bar-label">{{ h }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="card-title" style="margin-top:18px">星期分布</div>
+    {% set weekdays = ['周一','周二','周三','周四','周五','周六','周日'] %}
+    {% set maxw = week_bins | max %}
+    {% for i in range(7) %}
+    <div class="dist-row">
+      <span class="dist-name" style="width:38px">{{ weekdays[i] }}</span>
+      <div class="dist-track"><div class="dist-fill" style="width: {{ (week_bins[i] / (maxw or 1) * 100) | round(1) }}%"></div></div>
+      <span class="dist-num">{{ week_bins[i] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

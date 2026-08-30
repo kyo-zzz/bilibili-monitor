@@ -275,11 +275,32 @@ def cmd_video(args):
         raise SystemExit("--from 必须早于 --to")
     style = (args.style or (cfg.get("video") or {}).get("style") or "fluid").lower()
     if style == "classic":
+        if args.scene or args.sweep_frac or args.trend_top or \
+                args.race_top or args.vtitle or args.vsubtitle:
+            print("提示: 场景/动效参数仅流体几何(fluid)风格支持, classic 已忽略")
         from bmon import video
         path = video.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
     else:
         from bmon import video_fluid
-        path = video_fluid.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
+        scene_seconds = {}
+        for item in (args.scene or []):
+            try:
+                name, _, sec = item.partition("=")
+                scene_seconds[name.strip()] = float(sec)
+            except ValueError:
+                raise SystemExit(f"--scene 格式错误: {item} (应为 名称=秒数, "
+                                 f"如 bars=12; 可用: title/overview/trend/"
+                                 f"gains_videos/gains_games/bars/end)")
+        opts = {
+            "scene_seconds": scene_seconds,
+            "sweep_frac": args.sweep_frac,
+            "trend_top": args.trend_top,
+            "race_top": args.race_top,
+            "title": args.vtitle,
+            "subtitle": args.vsubtitle,
+        }
+        path = video_fluid.make_video(db, cfg, ts_from, ts_to, fps=args.fps,
+                                      opts=opts)
     print("已生成视频:", path)
     db.close()
 
@@ -362,6 +383,17 @@ def build_parser():
     pv.add_argument("--fps", type=int, default=30)
     pv.add_argument("--style", choices=["fluid", "classic"], default=None,
                     help="视觉风格: fluid=流体几何平设(默认) / classic=经典深色版")
+    pv.add_argument("--scene", action="append", metavar="名称=秒数",
+                    help="覆盖某幕时长(仅fluid, 可多次): title/overview/trend/"
+                         "gains_videos/gains_games/bars/end, 如 --scene bars=12")
+    pv.add_argument("--sweep-frac", type=float, default=None,
+                    help="每幕动画推进占比(仅fluid, 0.4~0.95, 越小越快/定格越久, 默认0.75)")
+    pv.add_argument("--trend-top", type=int, default=None,
+                    help="播放走势收录视频数(仅fluid, 默认8)")
+    pv.add_argument("--race-top", type=int, default=None,
+                    help="播放量竞跑收录视频数(仅fluid, 默认10)")
+    pv.add_argument("--vtitle", default=None, help="片头主标题文案(仅fluid)")
+    pv.add_argument("--vsubtitle", default=None, help="片头副标题文案(仅fluid)")
     pv.set_defaults(func=cmd_video)
     return p
 

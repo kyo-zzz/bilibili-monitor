@@ -131,7 +131,8 @@ a { color: inherit; text-decoration: none; }
 /* ---------- 主区 ---------- */
 .content {
   flex: 1; padding: 28px 34px 44px; max-width: 1320px; margin: 0 auto;
-  width: 100%; position: relative; z-index: 1;
+  width: 100%; min-width: 0; position: relative; z-index: 1;
+  overflow-x: clip;  /* 裁掉装饰性横向溢出(描边底字等), 不影响纵向滚动 */
 }
 .page-title {
   font-size: 24px; font-weight: 900; margin: 62px 0 26px;
@@ -240,7 +241,7 @@ a { color: inherit; text-decoration: none; }
 }
 .chart-list figure { margin: 0 0 26px; }
 .chart-list img {
-  width: 100%; border-radius: 8px; background: #fff;
+  width: 100%; max-width: 100%; border-radius: 8px; background: #fff;
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   transition: transform .22s ease, box-shadow .22s ease;
@@ -442,4 +443,78 @@ th.num { text-align: right; }
     animation-iteration-count: 1 !important;
     transition-duration: .001s !important;
   }
+}
+
+/* ---------- 数据中心页组件 ---------- */
+.bar-chart {
+  display: flex; align-items: flex-end; gap: 5px;
+  height: 190px; padding-top: 22px; overflow-x: auto;
+}
+.bar-chart.small { height: 120px; }
+.bar-col {
+  flex: 1 0 34px; max-width: 54px; height: 100%;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-end; gap: 4px; position: relative;
+}
+.bar-fill {
+  width: 70%; background: var(--ink); border-radius: 3px 3px 0 0;
+  min-height: 2px; transition: height .3s ease;
+}
+.bar-chart:hover .bar-fill { background: var(--coral); }
+.bar-fill.butter { background: var(--butter); }
+.bar-chart.small .bar-label { font-size: 8.5px; }
+.bar-rounds {
+  position: absolute; top: -18px; font-family: Consolas, monospace;
+  font-size: 10px; color: var(--dim);
+}
+.bar-label {
+  font-family: Consolas, monospace; font-size: 9px; color: var(--dim);
+  white-space: nowrap; transform: rotate(-45deg);
+}
+.dist-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px;
+}
+.dist-name { width: 110px; flex-shrink: 0; color: var(--ink); font-weight: 600; }
+.dist-track {
+  flex: 1; height: 10px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 5px; overflow: hidden;
+}
+.dist-fill { height: 100%; background: var(--ink); border-radius: 4px; }
+.dist-fill.alt { background: var(--lavender); }
+.dist-num { font-family: Consolas, monospace; font-size: 11px; color: var(--dim); white-space: nowrap; }
+.round-list { max-height: 300px; overflow-y: auto; }
+.round-row {
+  display: flex; justify-content: space-between; padding: 7px 2px;
+  border-bottom: 1px solid var(--line); font-size: 12px;
+}
+.round-n { color: var(--dim); font-family: Consolas, monospace; }
+.mono { font-family: Consolas, monospace; }
+.mono-strong { font-family: Consolas, monospace; font-weight: 700; }
+.cell-bar {
+  display: inline-block; height: 8px; background: var(--ink);
+  border-radius: 4px; vertical-align: middle; margin-right: 7px; min-width: 2px;
+}
+td .cell-bar + span { vertical-align: middle; }
+.cards.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 980px) { .cards.two { grid-template-columns: 1fr; } }
+
+/* 视频参数表单 */
+.scene-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 10px; margin: 6px 0 4px; width: 100%;
+}
+.scene-grid label {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  font-size: 11.5px; color: var(--dim);
+}
+.scene-grid input {
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 8px 10px; font-size: 13px; outline: none;
+  color-scheme: light; width: 100%; box-sizing: border-box;
+}
+.scene-grid input:focus { border-color: var(--ink); box-shadow: 3px 3px 0 rgba(26,28,34,.12); }
+.form-sec {
+  font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--dim);
+  margin: 14px 0 8px; padding-left: 9px; border-left: 3px solid var(--coral);
 }

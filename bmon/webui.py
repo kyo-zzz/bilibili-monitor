@@ -238,6 +238,79 @@ def create_app(cfg):
                         headers={"Content-Disposition":
                                  "attachment; filename=snapshot.csv"})
 
+    # ---------- 数据中心 ----------
+    @app.route("/data")
+    def data_page():
+        from datetime import timedelta
+        gran = request.args.get("gran", "daily")
+        if gran not in ("daily", "weekly", "monthly"):
+            gran = "daily"
+        con = db()
+        per_day = con.snapshots_per_day()
+        by_account = con.snapshots_by_account()
+        sources = con.snapshots_by_source()
+        rounds = con.round_sizes(30)
+        total = con.snapshot_count()
+        first = con.con.execute("SELECT MIN(ts) FROM snapshots").fetchone()[0]
+        last = con.last_snapshot_ts()
+        # 缺口日: 覆盖范围内无快照的日期
+        gaps = []
+        if per_day:
+            have = {r["d"] for r in per_day}
+            d0 = datetime.strptime(per_day[0]["d"], "%Y-%m-%d")
+            d1 = datetime.strptime(per_day[-1]["d"], "%Y-%m-%d")
+            d = d0
+            while d <= d1:
+                if d.strftime("%Y-%m-%d") not in have:
+                    gaps.append(d.strftime("%m-%d"))
+                d += timedelta(days=1)
+
+        # 分析: 按粒度聚合最近 12 期
+        from .charts import build_periods, agg_gains, agg_published
+        from .util import fmt_num as _fn
+        periods = build_periods(gran, 12)
+        rows = con.videos_with_stats()
+        gains, _, est = agg_gains(con, periods, rows)
+        counts = agg_published(rows, periods)
+        win_start = periods[0][1].strftime("%Y-%m-%d %H:%M:%S")
+        win_end = periods[-1][2].strftime("%Y-%m-%d %H:%M:%S")
+        growth_rows = filters_mod.apply_filters(
+            con.snapshot_report(win_end, win_start),
+            filters_mod.args_from_dict({"sort": "growth", "limit": 0},
+                                        default_sort="growth"))
+        top_growth = growth_rows[:10]
+        # 发布时间习惯(小时/星期)
+        hour_bins = [0] * 24
+        week_bins = [0] * 7
+        for r in rows:
+            if r.get("created_ts"):
+                d = datetime.fromtimestamp(r["created_ts"])
+                hour_bins[d.hour] += 1
+                week_bins[d.weekday()] += 1
+        # 每期账号增量行(供表格/条形)
+        acc_rows = {}
+        for r in rows:
+            acc_rows.setdefault(r["mid"], r.get("account") or str(r["mid"]))
+        period_rows = []
+        for i, (label, s, e) in enumerate(periods):
+            period_rows.append({
+                "label": label,
+                "snaps": con.con.execute(
+                    "SELECT COUNT(*) FROM snapshots WHERE ts>=? AND ts<?",
+                    (s.strftime("%Y-%m-%d %H:%M:%S"),
+                     e.strftime("%Y-%m-%d %H:%M:%S"))).fetchone()[0],
+                "published": sum(c[i] for c in counts.values()),
+                "gains": {acc_rows[m]: gains.get(m, [0] * len(periods))[i]
+                          for m in acc_rows},
+            })
+        con.close()
+        return render_template(
+            "data.html", gran=gran, per_day=per_day, by_account=by_account,
+            sources=sources, rounds=rounds, total=total, first=first, last=last,
+            gaps=gaps, periods=periods, period_rows=period_rows,
+            gains=gains, estimated=est, top_growth=top_growth,
+            hour_bins=hour_bins, week_bins=week_bins, fmt_num=_fn)
+
     # ---------- 图表文件 ----------
     @app.route("/charts/<path:fn>")
     def chart_file(fn):
@@ -331,6 +404,27 @@ def create_app(cfg):
         style = request.form.get("style")
         if style in ("fluid", "classic"):
             cmd += ["--style", style]
+        # 场景与动效参数(仅 fluid 生效; 留空不传)
+        for key in ("title", "overview", "trend", "gains_videos",
+                    "gains_games", "bars", "end"):
+            v = (request.form.get(f"sc_{key}") or "").strip()
+            if v:
+                try:
+                    if 0 <= float(v) <= 30:
+                        cmd += ["--scene", f"{key}={v}"]
+                except ValueError:
+                    pass
+        for flag, key in (("--sweep-frac", "sweep_frac"),
+                          ("--trend-top", "trend_top"), ("--race-top", "race_top")):
+            v = (request.form.get(key) or "").strip()
+            if v:
+                cmd += [flag, v]
+        vt = (request.form.get("vtitle") or "").strip()
+        vs = (request.form.get("vsubtitle") or "").strip()
+        if vt:
+            cmd += ["--vtitle", vt]
+        if vs:
+            cmd += ["--vsubtitle", vs]
         if mode == "days":
             try:
                 days = max(1, min(365, int(request.form.get("days") or 7)))

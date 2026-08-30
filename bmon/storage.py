@@ -200,6 +200,33 @@ class Database:
         row = self.con.execute("SELECT MAX(ts) FROM snapshots").fetchone()
         return row[0]
 
+    # ---------- 采集统计(数据中心页) ----------
+    def snapshots_per_day(self):
+        return [dict(r) for r in self.con.execute(
+            """SELECT substr(ts,1,10) AS d, COUNT(*) AS n,
+                      COUNT(DISTINCT ts) AS rounds,
+                      COUNT(DISTINCT bvid) AS bvids
+               FROM snapshots GROUP BY d ORDER BY d""").fetchall()]
+
+    def snapshots_by_account(self):
+        return [dict(r) for r in self.con.execute(
+            """SELECT COALESCE(a.real_name, a.name, CAST(v.mid AS TEXT)) AS name,
+                      COUNT(*) AS n, COUNT(DISTINCT s.ts) AS rounds
+               FROM snapshots s JOIN videos v ON v.bvid=s.bvid
+               LEFT JOIN accounts a ON a.mid=v.mid
+               GROUP BY v.mid ORDER BY n DESC""").fetchall()]
+
+    def snapshots_by_source(self):
+        return [dict(r) for r in self.con.execute(
+            "SELECT COALESCE(NULLIF(source,''),'未知') AS name, COUNT(*) AS n "
+            "FROM snapshots GROUP BY name ORDER BY n DESC").fetchall()]
+
+    def round_sizes(self, limit=30):
+        """最近 limit 轮的快照条数(按轮次时间倒序)."""
+        return [dict(r) for r in self.con.execute(
+            """SELECT ts, COUNT(*) AS n FROM snapshots
+               GROUP BY ts ORDER BY ts DESC LIMIT ?""", (limit,)).fetchall()]
+
     # ---------- 查询 ----------
     def videos_with_stats(self):
         """视频元数据 + 最新/最早快照指标, 供筛选与图表使用."""
