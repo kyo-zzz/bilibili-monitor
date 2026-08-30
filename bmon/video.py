@@ -104,8 +104,11 @@ def _interp_value(pts, t):
     return pts[-1][1]
 
 
-def collect(db, cfg, ts_from, ts_to):
-    """汇总视频: 趋势序列 / 增量Top / 总览数字 / 分游戏明细."""
+def collect(db, cfg, ts_from, ts_to, trend_pool=8, tops_pool=10):
+    """汇总视频: 趋势序列 / 增量Top / 总览数字 / 分游戏明细.
+
+    trend_pool/tops_pool: 池子上限(后续按展示参数再精选); classic 默认 8/10 不变.
+    """
     rows = db.videos_with_stats()
     meta = {r["bvid"]: r for r in rows}
     ordered, labels, colors = account_style(cfg, rows)
@@ -140,9 +143,9 @@ def collect(db, cfg, ts_from, ts_to):
         })
 
     trend = sorted([it for it in items if it["end"] and it["growth"] > 0],
-                   key=lambda x: -x["end"])[:8]
+                   key=lambda x: -x["end"])[:trend_pool]
     tops = sorted([it for it in items if it["growth"] > 0],
-                  key=lambda x: -x["growth"])[:10]
+                  key=lambda x: -x["growth"])[:tops_pool]
     summary = {
         "videos": len(rows),
         "views": sum(r.get("latest_view") or 0 for r in rows),
@@ -568,14 +571,14 @@ def _race_timeline(data, n):
     return frames
 
 
-def _bar_axis(tops):
+def _bar_axis(tops, thr=0.45):
     """播放量横轴范围: 最高者占满、其余等比缩放;
-    若各视频播放量相对差异过小(不足最高值的45%), 自动抬升轴起点(截断轴)放大差异."""
+    若各视频播放量相对差异过小(不足最高值的 thr 比例), 自动抬升轴起点(截断轴)放大差异."""
     vmax = max(it["end"] for it in tops) or 1
     vmin = min(it["start"] for it in tops)
     if vmax <= 0:
         return 0, 1
-    if (vmax - vmin) / vmax >= 0.45 or vmin <= 0:
+    if (vmax - vmin) / vmax >= thr or vmin <= 0:
         axis_min = 0
     else:
         step = 10 ** max(5, len(str(int(vmin))) - 2)

@@ -11,7 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 
 from .config import account_labels
 from .util import fmt_num
@@ -19,8 +19,11 @@ from .util import fmt_num
 log = logging.getLogger("bmon.charts")
 
 TSFMT = "%Y-%m-%d %H:%M:%S"
-ACCENT = ["#00A1D6", "#F25D8E", "#7B5FFF", "#2ECC71", "#F39C12",
-          "#E74C3C", "#1ABC9C", "#9B59B6", "#5D6D7E", "#16A085"]
+# 纸感平设色板(与 Web UI "Paper Editorial" 同源)
+PAPER, INK, DIM_C, GRID_C = "#f7f6f0", "#1a1c22", "#7c818e", "#e4e2d6"
+CORAL, BUTTER, LAVENDER, MINT = "#ff5a5a", "#f5b93f", "#8f7bff", "#2fbf71"
+ACCENT = [CORAL, BUTTER, LAVENDER, MINT, "#3aa4d6", "#e8729e",
+          "#8bc34a", "#f4863a", "#5d6d7e", "#16a085"]
 
 
 def setup_font(prefer=""):
@@ -209,13 +212,16 @@ def _wrap_title(title, max_lines=3):
 
 
 def _style_axes(ax):
-    """统一现代化样式: 去上/右边框, 虚线网格, 柔和刻度."""
+    """纸感平设轴样式: 去上/右边框, 墨色底线, 点线网格."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color("#c8c8c8")
-    ax.tick_params(colors="#555", labelsize=9.5)
-    ax.grid(axis="y", alpha=0.35, linestyle="--", linewidth=0.7)
+    ax.spines["left"].set_visible(False)
+    for side in ("bottom",):
+        ax.spines[side].set_color(INK)
+        ax.spines[side].set_linewidth(1.1)
+    ax.tick_params(colors=DIM_C, labelsize=9.5)
+    ax.grid(axis="y", alpha=0.5, linestyle=(0, (2, 4)), linewidth=0.8,
+            color=GRID_C)
     ax.set_axisbelow(True)
 
 
@@ -227,45 +233,49 @@ def _grouped(ax, period_labels, series, colors, labels, title, ylabel):
     rotate = m * n > 16
     for i, (mid, vals) in enumerate(series.items()):
         pos = [xi + (i - (n - 1) / 2) * width for xi in x]
-        bars = ax.bar(pos, vals, width=width * 0.95, label=labels.get(mid, mid),
-                      color=colors.get(mid, "#999"), edgecolor="white",
-                      linewidth=0.6, zorder=3)
+        bars = ax.bar(pos, vals, width=width * 0.92, label=labels.get(mid, mid),
+                      color=colors.get(mid, "#999"), edgecolor=PAPER,
+                      linewidth=0.8, zorder=3)
         ax.bar_label(bars, labels=[fmt_num(v) if v else "" for v in vals],
                      fontsize=8, rotation=90 if rotate else 0, padding=2,
-                     color="#3a3a3a")
+                     color=INK)
     ax.set_xticks(x)
-    ax.set_xticklabels(period_labels, rotation=45, ha="right", fontsize=9)
-    ax.set_title(title, fontsize=13, loc="left", pad=12, color="#222")
-    ax.set_ylabel(ylabel, color="#555")
-    ax.legend(fontsize=9, frameon=False)
-    ax.grid(axis="y", alpha=0.35, linestyle="--", linewidth=0.7)
-    ax.set_axisbelow(True)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color("#c8c8c8")
-    ax.tick_params(colors="#555")
+    ax.set_xticklabels(period_labels, rotation=45, ha="right", fontsize=9,
+                       color=DIM_C)
+    _card_title(ax, title)
+    ax.set_ylabel(ylabel, color=DIM_C)
+    ax.legend(fontsize=9, frameon=False, loc="upper right",
+              handlelength=1.1, handleheight=1.1, borderaxespad=0.2)
+    _style_axes(ax)
     if rotate:
         ax.margins(y=0.15)
 
 
+def _card_title(ax, title, accent=CORAL):
+    """编辑部式子图标题: 实色角块 + 墨色粗标题."""
+    ax.plot([0], [1.045], "s", color=accent, ms=6,
+            transform=ax.transAxes, clip_on=False)
+    ax.set_title(title, fontsize=12.5, loc="left", pad=13, color=INK,
+                 fontweight="heavy")
+
+
 def _top(ax, rows, n, colors, labels, title, key=None, note="暂无数据"):
-    """横向Top榜: 仅用标题做条目标签(完整折行不截断), 游戏以颜色+图例区分;
-    长条数值放条内白字, 短条放条外, 前三名金色强调, 左侧标注名次."""
+    """横向Top榜(纸感平设): 标题做条目标签(完整折行), 名次mono,
+    平涂色条+墨色数值, 游戏以颜色+图例区分."""
     key = key or (lambda r: r.get("latest_view"))
     items = [r for r in rows if key(r) is not None]
     items.sort(key=key, reverse=True)
     items = items[:n]
     if not items:
         ax.text(0.5, 0.5, note, ha="center", va="center",
-                transform=ax.transAxes, color="#888", fontsize=12)
-        ax.set_title(title, fontsize=13, loc="left", pad=12, color="#222")
+                transform=ax.transAxes, color=DIM_C, fontsize=12)
+        _card_title(ax, title)
         ax.set_xticks([])
         ax.set_yticks([])
         return
     items.reverse()                      # 最大值排最上
     names = [_wrap_title(r.get("title", "")) for r in items]
-    max_lines = max(s.count("\n") + 1 for s in names)
+    max_lines = max(s.count(chr(10)) + 1 for s in names)
     fsize = 9 if max_lines <= 2 else (8.4 if max_lines == 3 else 7.8)
     vals = [key(r) for r in items]
     vmax = max(vals) or 1
@@ -274,31 +284,30 @@ def _top(ax, rows, n, colors, labels, title, key=None, note="暂无数据"):
         if r.get("mid") not in present:
             present.append(r.get("mid"))
     ys = list(range(len(items)))
-    ax.barh(ys, vals, height=0.72,
+    ax.barh(ys, vals, height=0.7,
             color=[colors.get(r.get("mid"), "#999") for r in items],
-            edgecolor="white", linewidth=0.6, zorder=3)
+            edgecolor=PAPER, linewidth=0.8, zorder=3)
     ax.set_yticks(ys)
-    ax.set_yticklabels(names, fontsize=fsize, color="#333", linespacing=1.2)
+    ax.set_yticklabels(names, fontsize=fsize, color=INK, linespacing=1.25)
     for i, (y, v) in enumerate(zip(ys, vals)):
         rank = len(items) - i
         ax.text(-vmax * 0.013, y, f"{rank:02d}", ha="right", va="center",
-                fontsize=7.8, color="#b8b8b8")
-        if v >= vmax * 0.55:
+                fontsize=8, color=DIM_C, family="DejaVu Sans Mono")
+        if v >= vmax * 0.5:
             ax.text(v - vmax * 0.013, y, fmt_num(v), ha="right", va="center",
-                    color="white", fontsize=8.6, fontweight="bold", zorder=4)
+                    color="#ffffff", fontsize=8.6, fontweight="bold", zorder=4)
         else:
             ax.text(v + vmax * 0.016, y, fmt_num(v), ha="left", va="center",
-                    color="#c98a00" if rank <= 3 else "#3a3a3a",
-                    fontsize=8.8, fontweight="bold" if rank <= 3 else "normal",
-                    zorder=4)
+                    color=INK, fontsize=8.8,
+                    fontweight="bold" if rank <= 3 else "normal", zorder=4)
     ax.set_xlim(-vmax * 0.05, vmax * 1.13)
-    ax.set_title(title, fontsize=13, loc="left", pad=12, color="#222")
+    _card_title(ax, title, accent=BUTTER)
     ax.set_xticks([])
-    for side in ("top", "right", "bottom"):
+    for side in ("top", "right", "bottom", "left"):
         ax.spines[side].set_visible(False)
-    ax.spines["left"].set_color("#c8c8c8")
-    ax.tick_params(colors="#555", length=0)
-    ax.grid(axis="x", alpha=0.3, linestyle="--", linewidth=0.7)
+    ax.tick_params(colors=DIM_C, length=0)
+    ax.grid(axis="x", alpha=0.5, linestyle=(0, (2, 4)), linewidth=0.8,
+            color=GRID_C)
     ax.set_axisbelow(True)
     ax.legend(handles=[Patch(color=colors.get(m, "#999"), label=labels.get(m, m))
                        for m in present],
@@ -370,12 +379,20 @@ def make_dashboard(db, cfg, kind, rows):
     unit = {"daily": "日", "weekly": "周", "monthly": "个月"}[kind]
 
     fig, axes = plt.subplots(2, 2, figsize=(17.5, 13), dpi=140)
-    fig.patch.set_facecolor("white")
+    fig.patch.set_facecolor(PAPER)
     est_note = " · 含未采集时段插值估算" if est else ""
-    fig.suptitle(
-        f"B站官号视频数据{unit}报 · {period_labels[0]} ~ {period_labels[-1]}"
-        f" · 生成于 {datetime.now():%Y-%m-%d %H:%M}{est_note}",
-        fontsize=16, fontweight="bold", color="#111")
+    fig.patches.append(Rectangle((0.048, 0.962), 0.014, 0.024,
+                                 transform=fig.transFigure, facecolor=CORAL,
+                                 edgecolor="none", zorder=5))
+    fig.text(0.070, 0.962, f"B站官号视频数据{unit}报", fontsize=19,
+             color=INK, fontweight="heavy", va="top")
+    fig.text(0.952, 0.964,
+             f"{period_labels[0]} ~ {period_labels[-1]}  ·  生成于 "
+             f"{datetime.now():%Y-%m-%d %H:%M}{est_note}",
+             fontsize=10.5, color=DIM_C, ha="right", va="top")
+    fig.patches.append(Rectangle((0.048, 0.943), 0.904, 0.0022,
+                                 transform=fig.transFigure, facecolor=GRID_C,
+                                 edgecolor="none", zorder=1))
 
     _grouped(axes[0][0], period_labels,
              {m: counts.get(m, [0] * len(periods)) for m in ordered},
@@ -414,7 +431,7 @@ def make_single(db, cfg, kind, ctype, rows):
         fig, ax = plt.subplots(figsize=(14.5, 7.5), dpi=140)
     else:
         fig, ax = plt.subplots(figsize=(15, 10), dpi=140)
-    fig.patch.set_facecolor("white")
+    fig.patch.set_facecolor(PAPER)
     if ctype == "published":
         counts = agg_published(rows, periods)
         _grouped(ax, period_labels,
@@ -463,17 +480,22 @@ def write_index(cfg):
     doc = (
         "<!doctype html><html><head><meta charset=\"utf-8\">" + meta +
         "<title>B站官号视频数据监测</title><style>"
-        "body{font-family:'Microsoft YaHei',sans-serif;background:#101418;color:#e8e8e8;"
+        "body{font-family:'Microsoft YaHei',sans-serif;background:#f7f6f0;color:#1a1c22;"
         "margin:24px;max-width:1500px}"
-        "h1{font-size:20px}p{color:#889}"
-        "h2.sec{font-size:16px;margin:36px 0 14px;border-left:4px solid #00a1d6;"
-        "padding-left:10px}"
-        "h2 .cnt{font-size:12px;color:#778;margin-left:10px;font-weight:400}"
-        "figure{margin:0 0 32px}img{max-width:100%;border-radius:8px;background:#fff}"
-        "figcaption{color:#778;font-size:13px;margin-top:6px}"
+        "h1{font-size:20px;font-weight:800}h1::before{content:'';display:inline-block;"
+        "width:12px;height:12px;background:#ff5a5a;margin-right:10px}"
+        "p{color:#7c818e;font-family:Consolas,monospace;font-size:12px}"
+        "h2.sec{font-size:16px;margin:36px 0 14px;border-left:4px solid #1a1c22;"
+        "padding-left:10px;font-weight:800}"
+        "h2 .cnt{font-size:12px;color:#7c818e;margin-left:10px;font-weight:400;"
+        "font-family:Consolas,monospace}"
+        "figure{margin:0 0 32px}img{max-width:100%;border-radius:8px;background:#fff;"
+        "border:1px solid #e4e2d8}"
+        "figcaption{color:#7c818e;font-size:13px;margin-top:6px;"
+        "font-family:Consolas,monospace}"
         "</style></head><body>"
         "<h1>B站官号视频数据监测 · 自动图表</h1>"
-        f"<p>共 {total} 张 · 按 日/周/月 分区 · 由监测系统自动更新"
+        f"<p>// 共 {total} 张 · 按 日/周/月 分区 · 由监测系统自动更新"
         + (" · 页面每 " + str(ref) + " 秒自动刷新" if ref > 0 else "")
         + "</p>" + "".join(sections) + "</body></html>")
     path = os.path.join(outdir, "index.html")

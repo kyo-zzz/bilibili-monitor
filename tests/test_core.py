@@ -170,6 +170,21 @@ def test_next_runs_ordered(tmp_path):
     assert runs == sorted(runs)
 
 
+# ---------- 全量扫描调度 ----------
+def test_full_sweep_due():
+    import datetime as dt
+    from bmon.monitor import full_sweep_due
+    now = dt.datetime(2026, 8, 30, 12, 0)
+    assert full_sweep_due(None, now, 3, 45) is True          # 从未全量 → 立即
+    assert full_sweep_due("2026-08-30 06:00:00", now, 3, 45) is False
+    old = (now - dt.timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
+    assert full_sweep_due(old, now, 3, 45) is True            # 满 3 天
+    assert full_sweep_due(old, now, 7, 45) is False           # 未满 7 天
+    assert full_sweep_due(None, now, 0, 45) is False          # 功能关闭
+    assert full_sweep_due(None, now, 3, 0) is False           # active=0 本就每轮全量
+    assert full_sweep_due("bad", now, 3, 45) is True          # 坏数据视为到期
+
+
 # ---------- lock ----------
 def test_lock_mutual_exclusion(tmp_path):
     p = str(tmp_path / "fetch.lock")

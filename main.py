@@ -255,6 +255,30 @@ def cmd_backup(args):
 def cmd_video(args):
     cfg = cfgmod.load_config(args.config)
     setup_logging(cfg)
+    import json as _json
+    file_opts = {}
+    if getattr(args, "opts_file", None):
+        try:
+            with open(args.opts_file, encoding="utf-8") as f:
+                file_opts = _json.load(f) or {}
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"--opts-file 读取失败: {e}")
+    # opts-file 可提供 style/fps/时段等, CLI 未显式给出时生效
+    args.fps_given = args.fps is not None
+    if file_opts.get("style") and args.style is None:
+        args.style = file_opts["style"]
+    if file_opts.get("fps") and not args.fps_given:
+        args.fps = int(file_opts["fps"])
+    if args.fps is None:
+        args.fps = int((cfg.get("video") or {}).get("fps") or 30)
+    if file_opts.get("mode"):
+        m = file_opts["mode"]
+        if m == "all":
+            args.days, args.frm, args.to = 0, None, None
+        elif m == "days":
+            args.days, args.frm, args.to = int(file_opts.get("days") or 7), None, None
+        elif m == "range":
+            args.days, args.frm, args.to = 0, file_opts.get("from"), file_opts.get("to")
     from bmon.storage import Database
     db = Database(cfg["storage"]["db_path"])
     row = db.con.execute("SELECT MIN(ts), MAX(ts) FROM snapshots").fetchone()
@@ -276,7 +300,7 @@ def cmd_video(args):
     style = (args.style or (cfg.get("video") or {}).get("style") or "fluid").lower()
     if style == "classic":
         if args.scene or args.sweep_frac or args.trend_top or \
-                args.race_top or args.vtitle or args.vsubtitle:
+                args.race_top or args.vtitle or args.vsubtitle or file_opts:
             print("提示: 场景/动效参数仅流体几何(fluid)风格支持, classic 已忽略")
         from bmon import video
         path = video.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
@@ -293,11 +317,13 @@ def cmd_video(args):
                                  f"gains_videos/gains_games/bars/end)")
         opts = {
             "scene_seconds": scene_seconds,
-            "sweep_frac": args.sweep_frac,
+            "sweep_frac": args.sweep_frac if args.sweep_frac is not None
+                          else file_opts.get("sweep_frac"),
             "trend_top": args.trend_top,
             "race_top": args.race_top,
             "title": args.vtitle,
             "subtitle": args.vsubtitle,
+            "scenes": file_opts.get("scenes") or {},
         }
         path = video_fluid.make_video(db, cfg, ts_from, ts_to, fps=args.fps,
                                       opts=opts)
@@ -380,7 +406,8 @@ def build_parser():
                     help="仅取最近N天快照(0=全部快照历史)")
     pv.add_argument("--from", dest="frm", help="时段起点 YYYY-MM-DD [HH:MM]")
     pv.add_argument("--to", help="时段终点")
-    pv.add_argument("--fps", type=int, default=30)
+    pv.add_argument("--fps", type=int, default=None,
+                    help="帧率(默认取配置或 30)")
     pv.add_argument("--style", choices=["fluid", "classic"], default=None,
                     help="视觉风格: fluid=流体几何平设(默认) / classic=经典深色版")
     pv.add_argument("--scene", action="append", metavar="名称=秒数",
@@ -394,6 +421,9 @@ def build_parser():
                     help="播放量竞跑收录视频数(仅fluid, 默认10)")
     pv.add_argument("--vtitle", default=None, help="片头主标题文案(仅fluid)")
     pv.add_argument("--vsubtitle", default=None, help="片头副标题文案(仅fluid)")
+    pv.add_argument("--opts-file", default=None,
+                    help="JSON 参数文件(GUI 折叠面板生成), 可含 style/fps/mode/"
+                         "days/from/to/sweep_frac/scenes{每幕参数}, 优先级低于同名 CLI")
     pv.set_defaults(func=cmd_video)
     return p
 

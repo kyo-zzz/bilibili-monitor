@@ -28,6 +28,7 @@ monitor:
   backfill_pages: 0               # 首次抓取最多翻页数(每页50条, 0=不限制)
   track_since_days: 0             # 仅收录最近N天发布的视频(0=全部历史; 仅arc通道生效)
   active_days: 45                 # 仅对最近N天发布的视频逐周期采集指标(0=全部, 请求量大)
+  full_sweep_days: 3              # 每 N 天对所有入库视频全量采集一轮(0=关闭), 捕捉老视频翻红
   stats_mode: full                # basic=仅列表接口(播放/评论); full=逐视频详情(点赞/投币等)
   listing_mode: auto              # 投稿清单通道: auto=arc优先/风控自动切动态流; 可强制 arc / feed
   use_system_proxy: false         # 是否走系统代理(默认直连; 数据中心代理出口IP易被B站风控)

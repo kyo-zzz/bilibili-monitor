@@ -15,6 +15,20 @@ from .storage import Database, ts_str
 log = logging.getLogger("bmon.monitor")
 
 
+def full_sweep_due(last, now, days, active_days):
+    """是否轮到全量扫描(捕捉老视频翻红): full_sweep_days>0 且处于活跃窗口
+    模式时, 距上次全量 >= N 天即触发; 从未全量过则立即触发."""
+    if days <= 0 or active_days <= 0:
+        return False
+    if not last:
+        return True
+    try:
+        last_dt = datetime.strptime(str(last), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return True
+    return (now - last_dt).total_seconds() >= days * 86400
+
+
 class Monitor:
     def __init__(self, cfg, db=None, api=None):
         self.cfg = cfg
@@ -184,8 +198,15 @@ class Monitor:
             if i % 100 == 0:
                 log.info("[%s] 元数据回填进度 %d/%d", label, i, len(missing))
 
-        # 步骤2: 活跃窗口内视频的周期性快照
+        # 步骤2: 活跃窗口内视频的周期性快照; 到期时全量扫描(捕捉老视频翻红)
         active_days = int(mon.get("active_days") or 0)
+        sweep_all = full_sweep_due(self.db.get_last_full_sweep(mid), now,
+                                   int(mon.get("full_sweep_days") or 0),
+                                   active_days)
+        if sweep_all:
+            active_days = 0   # 本轮对所有入库视频采集
+            log.info("[%s] 到期全量扫描: 覆盖全部入库视频(上次: %s)",
+                     label, self.db.get_last_full_sweep(mid) or "从未")
         active_ts = int((now - timedelta(days=active_days)).timestamp()) if active_days > 0 else 0
         use_basic = (mon.get("stats_mode", "full") == "basic"
                      and channel == "arc")
@@ -212,9 +233,13 @@ class Monitor:
                 self.db.add_snapshot(**self._snap_from_detail(d, ts))
                 snaps += 1
         self.db.commit()
-        log.info("[%s] 快照 %d 条(活跃窗口 %d 天), 耗时 %.0fs",
-                 label, snaps + len(snapped), active_days or 0, time.time() - t0)
-        return {"mid": mid, "label": label, "snapshots": snaps + len(snapped)}
+        if sweep_all:
+            self.db.set_last_full_sweep(mid, ts_str(now))
+        log.info("[%s] 快照 %d 条(活跃窗口 %d 天%s), 耗时 %.0fs",
+                 label, snaps + len(snapped), active_days or 0,
+                 ", 全量扫描" if sweep_all else "", time.time() - t0)
+        return {"mid": mid, "label": label, "snapshots": snaps + len(snapped),
+                "full_sweep": sweep_all}
 
     # ---------- 周期 ----------
     def run_once(self, full=False):

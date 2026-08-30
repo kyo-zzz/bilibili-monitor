@@ -181,6 +181,12 @@ def _num_roll(ax, x, y, val, p, size, color, a, ha="center", prefix=""):
 
 
 # ---------- 场景 ----------
+def _o(data, scene, key, dflt=None):
+    """读取场景级展示参数: data["_o"]["scenes"][scene][key]."""
+    return (((data.get("_o") or {}).get("scenes") or {}).get(scene) or {}).get(
+        key, dflt)
+
+
 def _sc_title(fig, i, n, data):
     ax = _full_ax(fig)
     t = i / max(1, n - 1)
@@ -189,26 +195,27 @@ def _sc_title(fig, i, n, data):
     p = _ease(t)
     _outline(ax, 0.5, 0.78, "DATA REPORT", 88, a, ha="center")
     ax.text(0.5, 0.585, data.get("_title", "B站官号数据变化报告"),
-            fontsize=47, color=INK, ha="center", fontweight="bold",
-            alpha=a, zorder=4)
-    # 渐变胶囊时期牌
+            fontsize=float(_o(data, "title", "title_size", 47)), color=INK,
+            ha="center", fontweight="bold", alpha=a, zorder=4)
+    # 平涂胶囊时期牌
     pw = 0.30 * p
-    _chip(ax, 0.5 - pw / 2, 0.455, pw, 0.052, CYAN, VIOLET, alpha=a, z=4)
+    _chip(ax, 0.5 - pw / 2, 0.455, pw, 0.052, CYAN, alpha=a, z=4)
     ax.text(0.5, 0.481, f"{data['ts_from'][:10]}  →  {data['ts_to'][:10]}",
-            fontsize=15.5, color="#071024", ha="center", va="center",
+            fontsize=15.5, color="#ffffff", ha="center", va="center",
             fontweight="bold", alpha=a * p, zorder=5)
     ax.text(0.5, 0.395, data.get("_subtitle", "VIEW / SNAPSHOT / LOCAL ARCHIVE"),
             fontsize=11.5, color=DIM, ha="center", family="DejaVu Sans Mono",
             alpha=a * p, zorder=4)
-    # 几何叠色块(左下) + 液态斑(右上)
-    ax.add_patch(Rectangle((0.075, 0.135), 0.052, 0.052, facecolor=PINK,
-                           edgecolor="none", alpha=a * 0.9, zorder=3))
-    ax.add_patch(Rectangle((0.105, 0.165), 0.052, 0.052, facecolor="none",
-                           edgecolor=CYAN, linewidth=1.8, alpha=a, zorder=3))
-    ax.add_patch(Rectangle((0.135, 0.135), 0.022, 0.022, facecolor=VIOLET,
-                           edgecolor="none", alpha=a * 0.85, zorder=3))
-    _ring_text(ax, 0.845, 0.70, 0.115,
-               "BILIBILI MONITOR ★ FLUID GEOMETRY ★ ", 10.5, a, t=i / 8)
+    if _o(data, "title", "blocks", True):
+        ax.add_patch(Rectangle((0.075, 0.135), 0.052, 0.052, facecolor=PINK,
+                               edgecolor="none", alpha=a * 0.9, zorder=3))
+        ax.add_patch(Rectangle((0.105, 0.165), 0.052, 0.052, facecolor="none",
+                               edgecolor=INK, linewidth=1.8, alpha=a, zorder=3))
+        ax.add_patch(Rectangle((0.135, 0.135), 0.022, 0.022, facecolor=VIOLET,
+                               edgecolor="none", alpha=a * 0.85, zorder=3))
+    if _o(data, "title", "ring", True):
+        _ring_text(ax, 0.845, 0.70, 0.115,
+                   "BILIBILI MONITOR ★ FLUID GEOMETRY ★ ", 10.5, a, t=i / 8)
     _sparkles(ax, [(0.22, 0.66, 13, 0.5), (0.72, 0.30, 11, 2.2),
                    (0.35, 0.24, 8, 4.0), (0.63, 0.72, 9, 5.1)], i / 10, a)
     ax.text(0.5, 0.075, "bmon · bilibili-monitor", fontsize=10.5, color=DIM,
@@ -242,7 +249,7 @@ def _sc_overview(fig, i, n, data):
     _cross(ax, 0.955, 0.66, 0.008, a)
 
     # 分游戏行: 色点 + 名称 + 播放占比条 + 指标
-    accs = data["accounts"][:3]
+    accs = data["accounts"][:max(1, int(_o(data, "overview", "game_rows", 3)))]
     total_views = max(1, sum(x["views"] for x in accs))
     ax.text(0.07, 0.545, "分游戏明细 / BY GAME", fontsize=11, color=DIM,
             alpha=a, zorder=4)
@@ -335,12 +342,18 @@ def _trend_like(fig, i, n, data, kind):
     ax = _full_ax(fig)
     a = _fade(i, n)
     _bg(ax, i / 10)
-    trend = data["trend"]
+    sc = "trend" if kind == "view" else "gains_videos"
+    top_n = max(1, int(_o(data, sc, "top", 8)))
+    trend = data["trend"][:top_n]
+    line_w = float(_o(data, sc, "line_width", 2.6))
+    show_dots = bool(_o(data, sc, "dots", True))
+    label_w = int(_o(data, sc, "label_width", 24))
+    axis_pad = float(_o(data, sc, "axis_pad", 0.12))
     en = "TRENDING" if kind == "view" else "GAINS / VIDEO"
     title = ("播放量走势" if kind == "view"
              else "净增量走势 · 视频")
-    sub = ("变化最显著的 Top8 视频 · 辉光曲线"
-           if kind == "view" else "Top8 视频各自净增量 · 零基线")
+    sub = (f"变化最显著的 Top{len(trend)} 视频 · 辉光曲线"
+           if kind == "view" else f"Top{len(trend)} 视频各自净增量 · 零基线")
     _header(ax, i, n, en, title, sub, _period(data),
             accent=CYAN if kind == "view" else VIOLET)
     if not trend:
@@ -353,11 +366,16 @@ def _trend_like(fig, i, n, data, kind):
     if kind == "view":
         vmin = min(v for it in trend for _, v in it["pts"])
         vmax = max(v for it in trend for _, v in it["pts"])
-        lo = max(0, vmin - (vmax - vmin) * 0.12)
+        lo = max(0, vmin - (vmax - vmin) * axis_pad)
         hi = vmax + (vmax - vmin) * 0.08 or 1
     else:
+        gmin = min(min(v for _, v in it["pts"]) - it["start"] for it in trend)
         gmax = max(it["growth"] for it in trend) * 1.08 or 1
-        lo, hi = 0, gmax
+        if _o(data, sc, "zero_base", True):
+            lo = 0
+        else:
+            lo = max(0, gmin - (gmax - gmin) * axis_pad)
+        hi = gmax
 
     def tx(tt):
         return x0 + (x1 - x0) * (tt - t0).total_seconds() / (t1 - t0).total_seconds()
@@ -391,12 +409,13 @@ def _trend_like(fig, i, n, data, kind):
                 v -= it["start"]
             xs.append(tx(tt))
             ys.append(vy(v))
-        _glow_curve(ax, xs, ys, it["color"], 2.6, a)
-        mp = [(tt, v) for tt, v in it["pts"] if tt <= sweep]
-        ax.plot([tx(tt) for tt, _ in mp],
-                [vy(v - it["start"] if kind == "gain" else v) for _, v in mp],
-                "o", ms=5.5, color=it["color"], markerfacecolor=it["color"],
-                markeredgecolor=BG1, markeredgewidth=1.0, alpha=a, zorder=6)
+        _glow_curve(ax, xs, ys, it["color"], line_w, a)
+        if show_dots:
+            mp = [(tt, v) for tt, v in it["pts"] if tt <= sweep]
+            ax.plot([tx(tt) for tt, _ in mp],
+                    [vy(v - it["start"] if kind == "gain" else v) for _, v in mp],
+                    "o", ms=5.5, color=it["color"], markerfacecolor=it["color"],
+                    markeredgecolor=BG1, markeredgewidth=1.0, alpha=a, zorder=6)
     if sweep < t1:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, linestyle=(0, (3, 4)),
@@ -418,8 +437,8 @@ def _trend_like(fig, i, n, data, kind):
                 zorder=5)
         ax.plot([0.735], [sy], "o", color=it["color"], ms=16, alpha=a * 0.2,
                 zorder=4)
-        ax.text(0.756, sy, _wrap2(it["title"], 24), fontsize=9.5, color=INK,
-                va="center", linespacing=1.18, alpha=a, zorder=5)
+        ax.text(0.756, sy, _wrap2(it["title"], label_w), fontsize=9.5,
+                color=INK, va="center", linespacing=1.18, alpha=a, zorder=5)
         val = fr["vals"][it["bvid"]]
         txt = (fmt_num(int(val)) if kind == "view"
                else "+" + fmt_num(max(0, int(val))))
@@ -503,6 +522,10 @@ def _sc_bars(fig, i, n, data):
     _bg(ax, i / 10)
     _header(ax, i, n, "BAR RACE", "播放量竞跑 Top10",
             "条形长度 = 当前播放量 · 条尾为期内新增", _period(data), accent=GOLD)
+    race_top = max(1, int(_o(data, "bars", "top", 10)))
+    thr = float(_o(data, "bars", "truncate_thr", 0.45))
+    bar_h = float(_o(data, "bars", "bar_h", 0.56))
+    data["tops"] = data["tops"][:race_top]
     tops = data["tops"]
     if not tops:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=19, color=DIM,
@@ -518,7 +541,7 @@ def _sc_bars(fig, i, n, data):
     left, right = 0.30, 0.80
     top_y, bot_y = 0.80, 0.185
     step = (top_y - bot_y) / len(tops)
-    axis_min, axis_max = _bar_axis(tops)
+    axis_min, axis_max = _bar_axis(tops, thr=thr)
 
     def bw(v):
         return (right - left) * max(0.0, v - axis_min) / (axis_max - axis_min)
@@ -544,12 +567,12 @@ def _sc_bars(fig, i, n, data):
                 alpha=a, zorder=3)
         # 条形阴影 + 圆角渐变条
         ax.add_patch(FancyBboxPatch((left + 0.003, y - step * 0.28 + 0.0022),
-                                    max(0.001, w), step * 0.56,
+                                    max(0.001, w), step * bar_h,
                                     boxstyle="round,pad=0,rounding_size=0.006",
                                     facecolor="#000000", edgecolor="none",
                                     alpha=a * 0.28, transform=ax.transAxes,
                                     mutation_aspect=16 / 9, zorder=3))
-        _chip(ax, left, y - step * 0.28, w, step * 0.56,
+        _chip(ax, left, y - step * 0.28, w, step * bar_h,
               it["color"], _lighten(it["color"], 0.45), alpha=a * 0.96,
               z=4, rounding=0.005)
         gain = int(max(0, v - it["start"]))
@@ -616,7 +639,7 @@ def _sc_end(fig, i, n, data):
     _ring_text(ax, 0.5, 0.47, 0.185, "THANKS FOR WATCHING ★ LOCAL DATA ★ ",
                12, a, t=i / 8)
     _outline(ax, 0.5, 0.76, "SEE YOU", 56, a, ha="center")
-    ax.text(0.5, 0.505, "本期报告 · 完", fontsize=36, color=INK, ha="center",
+    ax.text(0.5, 0.505, _o(data, "end", "text", "本期报告 · 完"), fontsize=36, color=INK, ha="center",
             fontweight="bold", alpha=a, zorder=4)
     pw = 0.22 * p
     _chip(ax, 0.5 - pw / 2, 0.415, pw, 0.042, PINK, VIOLET, alpha=a, z=4)
@@ -681,19 +704,28 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
     except ImportError:
         pass
     opts = opts or {}
-    data = collect(db, cfg, ts_from, ts_to)
+    scenes_o = dict(opts.get("scenes") or {})
+    # 池子取各幕收录数上限, 供各幕自行精选
+    pool_t = max(8, int((scenes_o.get("trend") or {}).get("top") or 8),
+                 int((scenes_o.get("gains_videos") or {}).get("top") or 8))
+    pool_r = max(10, int((scenes_o.get("bars") or {}).get("top") or 10))
+    data = collect(db, cfg, ts_from, ts_to, trend_pool=pool_t, tops_pool=pool_r)
     if not data["trend"] and not data["tops"]:
         raise SystemExit("该时段没有可用快照数据, 无法生成视频")
 
-    trend_top = max(1, int(opts.get("trend_top") or 8))
-    race_top = max(1, int(opts.get("race_top") or 10))
-    data["trend"] = sorted(data["trend"], key=lambda x: -x["end"])[:trend_top]
-    data["tops"] = sorted(data["tops"], key=lambda x: -x["growth"])[:race_top]
-    data["_title"] = str(opts.get("title") or "B站官号数据变化报告")
-    data["_subtitle"] = str(opts.get("subtitle") or
-                            "VIEW / SNAPSHOT / LOCAL ARCHIVE")
+    data["_o"] = {"scenes": scenes_o}
+    t_title = ((scenes_o.get("title") or {}).get("title")
+               or opts.get("title") or "B站官号数据变化报告")
+    t_sub = ((scenes_o.get("title") or {}).get("subtitle")
+             or opts.get("subtitle") or "VIEW / SNAPSHOT / LOCAL ARCHIVE")
+    data["_title"] = str(t_title)
+    data["_subtitle"] = str(t_sub)
     sweep_frac = min(0.95, max(0.4, float(opts.get("sweep_frac") or 0.75)))
     scene_seconds = dict(opts.get("scene_seconds") or {})
+    # 各幕也可把时长写在 scenes.<name>.dur 里(GUI JSON 形式), 此处合并
+    for k, so in scenes_o.items():
+        if isinstance(so, dict) and so.get("dur") is not None:
+            scene_seconds[k] = float(so["dur"])
     # 清除可能缓存的旧时间轴(参数变更后必须重算)
     for k in ("_side_trend", "_side_gains", "_race"):
         data.pop(k, None)

@@ -518,3 +518,127 @@ td .cell-bar + span { vertical-align: middle; }
   font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--dim);
   margin: 14px 0 8px; padding-left: 9px; border-left: 3px solid var(--coral);
 }
+
+/* 分析评论卡 */
+.insight-card { border-left: 4px solid var(--coral); background: #fdfcf8; }
+.insight-h {
+  font-size: 13.5px; font-weight: 800; margin: 10px 0 4px;
+  padding-left: 9px; border-left: 3px solid var(--butter);
+}
+.insight-p { font-size: 13.5px; line-height: 1.9; color: #3c4150; }
+.insight-li { font-size: 13.5px; line-height: 1.9; color: #3c4150; padding-left: 6px; }
+
+/* 视频每幕折叠面板 */
+details.vp-scene {
+  border: 1px solid var(--line); border-radius: 6px;
+  margin-bottom: 8px; background: #fbfaf6; overflow: hidden;
+}
+details.vp-scene summary {
+  cursor: pointer; padding: 11px 14px; font-size: 13px; font-weight: 800;
+  list-style: none; display: flex; align-items: baseline; gap: 8px;
+  user-select: none; transition: background .14s ease;
+}
+details.vp-scene summary::-webkit-details-marker { display: none; }
+details.vp-scene summary::before {
+  content: "+"; font-family: Consolas, monospace; font-weight: 700;
+  color: var(--coral); width: 14px; transition: transform .18s ease;
+}
+details.vp-scene[open] summary::before { content: "−"; }
+details.vp-scene summary:hover { background: #f3f1ea; }
+details.vp-scene > *:not(summary) { padding: 4px 14px 12px; }
+
+
+/* ============================================================
+   v5 · MAD 平面设计层: 几何角标 / 色块轮换 / 波浪 / 生长动效 / 背景弧线
+   ============================================================ */
+
+/* 色块轮换: 每张卡按顺序获得专属强调色 */
+:root { --acc: var(--ink); }
+.cards > .card:nth-child(4n+1) { --acc: var(--coral); }
+.cards > .card:nth-child(4n+2) { --acc: var(--butter); }
+.cards > .card:nth-child(4n+3) { --acc: var(--lavender); }
+.cards > .card:nth-child(4n)   { --acc: var(--mint); }
+.content > .card:nth-of-type(4n+1) { --acc: var(--coral); }
+.content > .card:nth-of-type(4n+2) { --acc: var(--butter); }
+.content > .card:nth-of-type(4n+3) { --acc: var(--lavender); }
+.content > .card:nth-of-type(4n)   { --acc: var(--mint); }
+.card-title::before { background: var(--acc); }
+.card-title::after {
+  content: ""; flex: 0 0 46px; height: 1px; align-self: center;
+  background: var(--line-2);
+}
+
+/* 卡片右上角几何角标: 空心圆 + 内点(呼吸) */
+.card::after {
+  content: ""; position: absolute; top: 12px; right: 14px;
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 1.6px solid var(--acc, var(--ink)); opacity: .45;
+}
+.card::after::before {
+  content: ""; position: absolute; inset: 4px; border-radius: 50%;
+  background: var(--acc, var(--ink)); opacity: 0;
+  transition: opacity .25s ease;
+}
+.card:hover::after { opacity: .9; animation: pulseDot 1.6s ease-in-out infinite; }
+.card:hover::after::before { opacity: .9; }
+@keyframes pulseDot { 50% { transform: scale(.55); } }
+.card.stat::after { display: none; }
+
+/* 卡片左上实色短角标(非统计卡) */
+.card:not(.stat)::before {
+  content: ""; position: absolute; left: -1px; top: -1px;
+  width: 22px; height: 4px; background: var(--acc, var(--ink));
+}
+
+/* 页标题波浪分隔(珊瑚色曲线, 替代直线) */
+.page-title::after {
+  content: ""; flex: 0 0 130px; height: 8px; align-self: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='8'%3E%3Cpath d='M0 6 Q6.5 0 13 4 T26 2' fill='none' stroke='%23ff5a5a' stroke-width='1.8'/%3E%3C/svg%3E");
+  background-repeat: repeat-x; background-size: 26px 8px;
+}
+
+/* 数据条生长动效 */
+.bar-fill, .dist-fill, .cell-bar { animation: growW .9s cubic-bezier(.2,.8,.2,1) both; }
+.bar-fill { animation-name: growH; transform-origin: bottom; }
+@keyframes growW { from { width: 0 !important; } }
+@keyframes growH { from { height: 0 !important; } }
+
+/* 表格行悬停: 左侧强调竖条 */
+tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--acc, var(--coral)); }
+
+/* 账号点悬停脉动 */
+.acc-item:hover .dot { animation: dotPulse 1s ease-in-out infinite; }
+@keyframes dotPulse { 50% { transform: scale(1.5); opacity: .6; } }
+
+/* 背景弧线组: 大四分之一圆 + 点弧 + 实色小圆 */
+.bg-decor .arc {
+  position: absolute; border-radius: 50%; border: 1.5px solid rgba(26,28,34,.10);
+}
+.bg-decor .a1 {
+  width: 560px; height: 560px; left: -300px; bottom: -300px;
+  border-color: rgba(26,28,34,.12); animation: spin 80s linear infinite;
+}
+.bg-decor .a2 {
+  width: 340px; height: 340px; right: 18vw; top: 30vh;
+  border-style: dotted; border-color: rgba(255,90,90,.30);
+  animation: spin 50s linear infinite reverse;
+}
+.bg-decor .solid-dot {
+  position: absolute; border-radius: 50%; background: var(--butter);
+  width: 14px; height: 14px; left: 42%; top: 26%; opacity: .8;
+  animation: floaty 7s ease-in-out infinite alternate;
+}
+.bg-decor .solid-dot.s2 { background: var(--mint); width: 10px; height: 10px;
+  left: 12%; top: 68%; animation-duration: 9s; }
+@keyframes floaty { to { transform: translateY(-26px); } }
+
+/* 区块标题尾部旋转小方块 */
+.chart-sec-title { position: relative; }
+.chart-sec-title::after {
+  content: ""; flex: 0 0 46px; height: 0;
+  background: none;
+}
+.chart-sec-title b.spin-sq {
+  display: inline-block; width: 8px; height: 8px;
+  background: var(--coral); animation: spin 6s linear infinite;
+}

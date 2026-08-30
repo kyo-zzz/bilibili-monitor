@@ -46,7 +46,7 @@
       <button class="btn primary" type="submit" {{ 'disabled' if running }}>
         {{ '渲染中, 请稍候…' if running else '开始生成' }}</button>
     </div>
-    <div class="form-sec">场景与动效 <span class="dim">(以下仅「流体几何」风格生效, 留空即用默认)</span></div>
+    <div class="form-sec">场景与动效 <span class="dim">(以下仅「流体几何」风格生效, 点击各模块展开编辑; 留空即用默认)</span></div>
     <div class="sched-row">
       <span class="dim">动画推进占比</span>
       <select name="sweep_frac">
@@ -55,25 +55,76 @@
         <option value="0.5">极快 50%</option>
         <option value="0.85">舒缓 85%</option>
       </select>
-      <span class="dim">走势收录</span>
-      <input type="number" name="trend_top" value="" min="1" max="15" placeholder="8" style="width:74px">
-      <span class="dim">竞跑收录</span>
-      <input type="number" name="race_top" value="" min="1" max="20" placeholder="10" style="width:74px">
     </div>
-    <div class="scene-grid">
-      {% for key, name, dflt in [('title','片头',3), ('overview','总览',6.5),
-                                 ('trend','播放走势',10), ('gains_videos','净增量·视频',9),
-                                 ('gains_games','净增量·分游戏',8), ('bars','播放竞跑',10), ('end','片尾',3)] %}
-      <label>{{ name }}秒<input type="number" name="sc_{{ key }}" value="" min="0" max="30" step="0.5" placeholder="{{ dflt }}"></label>
-      {% endfor %}
-    </div>
-    <div class="sched-row">
-      <span class="dim">片头主标题</span>
-      <input type="text" name="vtitle" value="" maxlength="40" placeholder="B站官号数据变化报告" style="min-width:220px">
-      <span class="dim">副标题</span>
-      <input type="text" name="vsubtitle" value="" maxlength="50" placeholder="VIEW / SNAPSHOT / LOCAL ARCHIVE" style="min-width:220px">
-    </div>
-    <div class="dim note">场景: 片头 → 总览 → 播放走势 → 净增量(视频/分游戏) → 竞跑 → 片尾 · 时长设 0 可跳过该幕</div>
+
+    <details class="vp-scene">
+      <summary>片头 <span class="dim">标题文案 · 字号 · 环形文字 · 几何色块</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_title_dur" value="" min="0" max="30" step="0.5" placeholder="3"></label>
+        <label style="grid-column: span 2">主标题<input type="text" name="sc_title_title" value="" maxlength="40" placeholder="B站官号数据变化报告"></label>
+        <label style="grid-column: span 2">副标题<input type="text" name="sc_title_subtitle" value="" maxlength="50" placeholder="VIEW / SNAPSHOT / LOCAL ARCHIVE"></label>
+        <label>主标题字号<input type="number" name="sc_title_title_size" value="" min="20" max="80" placeholder="47"></label>
+        <label class="chk" style="margin-top:16px"><input type="checkbox" name="sc_title_ring" value="1">显示环形文字</label>
+        <label class="chk" style="margin-top:16px"><input type="checkbox" name="sc_title_blocks" value="1">显示几何色块</label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>总览 <span class="dim">数字滚动卡片 · 分游戏明细 · 时间轴</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_overview_dur" value="" min="0" max="30" step="0.5" placeholder="6.5"></label>
+        <label>分游戏行数<input type="number" name="sc_overview_game_rows" value="" min="1" max="3" placeholder="3"></label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>播放走势 <span class="dim">Top N · 线宽 · 快照点 · 纵轴下缓冲 · 标签折行</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_trend_dur" value="" min="0" max="30" step="0.5" placeholder="10"></label>
+        <label>收录 Top<input type="number" name="sc_trend_top" value="" min="1" max="15" placeholder="8"></label>
+        <label>线宽<input type="number" name="sc_trend_line_width" value="" min="1" max="5" step="0.2" placeholder="2.6"></label>
+        <label>纵轴下缓冲<input type="number" name="sc_trend_axis_pad" value="" min="0" max="0.4" step="0.02" placeholder="0.12"></label>
+        <label>标签折行宽<input type="number" name="sc_trend_label_width" value="" min="14" max="36" placeholder="24"></label>
+        <label class="chk" style="margin-top:16px"><input type="checkbox" name="sc_trend_dots" value="1">显示快照点</label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>净增量 · 视频 <span class="dim">Top N · 线宽 · 零基线开关</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_gains_videos_dur" value="" min="0" max="30" step="0.5" placeholder="9"></label>
+        <label>收录 Top<input type="number" name="sc_gains_videos_top" value="" min="1" max="15" placeholder="8"></label>
+        <label>线宽<input type="number" name="sc_gains_videos_line_width" value="" min="1" max="5" step="0.2" placeholder="2.6"></label>
+        <label>标签折行宽<input type="number" name="sc_gains_videos_label_width" value="" min="14" max="36" placeholder="24"></label>
+        <label class="chk" style="margin-top:16px"><input type="checkbox" name="sc_gains_videos_zero_base" value="1" checked>纵轴从零起</label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>净增量 · 分游戏 <span class="dim">三游戏合计增量曲线与卡片</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_gains_games_dur" value="" min="0" max="30" step="0.5" placeholder="8"></label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>播放量竞跑 <span class="dim">Top N · 横轴截断阈值 · 条形高度</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_bars_dur" value="" min="0" max="30" step="0.5" placeholder="10"></label>
+        <label>收录 Top<input type="number" name="sc_bars_top" value="" min="1" max="20" placeholder="10"></label>
+        <label>截断阈值<input type="number" name="sc_bars_truncate_thr" value="" min="0" max="0.9" step="0.05" placeholder="0.45"></label>
+        <label>条形高度<input type="number" name="sc_bars_bar_h" value="" min="0.3" max="0.8" step="0.02" placeholder="0.56"></label>
+      </div>
+    </details>
+
+    <details class="vp-scene">
+      <summary>片尾 <span class="dim">结束语与时长</span></summary>
+      <div class="scene-grid">
+        <label>时长秒<input type="number" name="sc_end_dur" value="" min="0" max="30" step="0.5" placeholder="3"></label>
+        <label style="grid-column: span 3">结束语<input type="text" name="sc_end_text" value="" maxlength="30" placeholder="本期报告 · 完"></label>
+      </div>
+    </details>
+    <div class="dim note">场景顺序: 片头 → 总览 → 播放走势 → 净增量(视频/分游戏) → 竞跑 → 片尾 · 时长设 0 可跳过该幕</div>
   </form>
   {% if err %}<div class="alert" style="margin-top:12px">{{ err }}</div>{% endif %}
 </div>

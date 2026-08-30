@@ -251,6 +251,8 @@ def create_app(cfg):
         sources = con.snapshots_by_source()
         rounds = con.round_sizes(30)
         total = con.snapshot_count()
+        total_rounds = con.con.execute(
+            "SELECT COUNT(DISTINCT ts) FROM snapshots").fetchone()[0]
         first = con.con.execute("SELECT MIN(ts) FROM snapshots").fetchone()[0]
         last = con.last_snapshot_ts()
         # 缺口日: 覆盖范围内无快照的日期
@@ -304,12 +306,26 @@ def create_app(cfg):
                           for m in acc_rows},
             })
         con.close()
+        # 人工分析评论(data/insight.md, 由助手按需手写更新, 非自动生成)
+        insight, insight_mtime = None, None
+        ipath = os.path.join(os.path.dirname(cfg["storage"]["db_path"]),
+                             "insight.md")
+        if os.path.exists(ipath):
+            try:
+                with open(ipath, encoding="utf-8") as f:
+                    insight = f.read()
+                insight_mtime = datetime.fromtimestamp(
+                    os.path.getmtime(ipath)).strftime("%Y-%m-%d %H:%M")
+            except OSError:
+                pass
         return render_template(
             "data.html", gran=gran, per_day=per_day, by_account=by_account,
-            sources=sources, rounds=rounds, total=total, first=first, last=last,
+            sources=sources, rounds=rounds, total=total,
+            total_rounds=total_rounds, first=first, last=last,
             gaps=gaps, periods=periods, period_rows=period_rows,
             gains=gains, estimated=est, top_growth=top_growth,
-            hour_bins=hour_bins, week_bins=week_bins, fmt_num=_fn)
+            hour_bins=hour_bins, week_bins=week_bins, fmt_num=_fn,
+            insight=insight, insight_mtime=insight_mtime)
 
     # ---------- 图表文件 ----------
     @app.route("/charts/<path:fn>")
@@ -400,31 +416,61 @@ def create_app(cfg):
             fps = max(10, min(60, int(request.form.get("fps") or 30)))
         except ValueError:
             fps = 30
-        cmd = ["video", "--fps", str(fps)]
-        style = request.form.get("style")
-        if style in ("fluid", "classic"):
-            cmd += ["--style", style]
-        # 场景与动效参数(仅 fluid 生效; 留空不传)
-        for key in ("title", "overview", "trend", "gains_videos",
-                    "gains_games", "bars", "end"):
-            v = (request.form.get(f"sc_{key}") or "").strip()
-            if v:
-                try:
-                    if 0 <= float(v) <= 30:
-                        cmd += ["--scene", f"{key}={v}"]
-                except ValueError:
-                    pass
-        for flag, key in (("--sweep-frac", "sweep_frac"),
-                          ("--trend-top", "trend_top"), ("--race-top", "race_top")):
-            v = (request.form.get(key) or "").strip()
-            if v:
-                cmd += [flag, v]
-        vt = (request.form.get("vtitle") or "").strip()
-        vs = (request.form.get("vsubtitle") or "").strip()
-        if vt:
-            cmd += ["--vtitle", vt]
-        if vs:
-            cmd += ["--vsubtitle", vs]
+        cmd = ["video"]
+        # 组装 opts JSON(折叠面板逐幕参数), 子进程经 --opts-file 读取
+        scenes = {}
+
+        def _num(name, cast=float):
+            v = (request.form.get(name) or "").strip()
+            if v == "":
+                return None
+            try:
+                return cast(v)
+            except ValueError:
+                return None
+
+        def _flag(name):
+            return request.form.get(name) == "1"
+
+        scene_keys = {"title": ["dur", "title", "subtitle", "title_size", "ring",
+                                "blocks"],
+                      "overview": ["dur", "game_rows"],
+                      "trend": ["dur", "top", "line_width", "axis_pad",
+                                "label_width", "dots"],
+                      "gains_videos": ["dur", "top", "line_width", "label_width",
+                                       "zero_base"],
+                      "gains_games": ["dur"],
+                      "bars": ["dur", "top", "truncate_thr", "bar_h"],
+                      "end": ["dur", "text"]}
+        bools = {"ring", "blocks", "dots", "zero_base"}
+        texts = {"title", "subtitle", "text"}
+        for sc, keys in scene_keys.items():
+            conf = {}
+            for k in keys:
+                if k in bools:
+                    conf[k] = _flag(f"sc_{sc}_{k}")
+                    continue
+                v = (request.form.get(f"sc_{sc}_{k}") or "").strip()
+                if v == "":
+                    continue
+                conf[k] = v if k in texts else _num(f"sc_{sc}_{k}")
+            if conf:
+                scenes[sc] = conf
+        opts = {"sweep_frac": _num("sweep_frac"), "scenes": scenes,
+                "fps": fps, "style": request.form.get("style") or "fluid"}
+        mode = request.form.get("mode", "all")
+        opts["mode"] = mode
+        if mode == "days":
+            opts["days"] = _num("days", int) or 7
+        elif mode == "range":
+            opts["from"] = request.form.get("from") or ""
+            opts["to"] = request.form.get("to") or ""
+        data_dir = os.path.dirname(cfg["storage"]["db_path"])
+        os.makedirs(data_dir, exist_ok=True)
+        opts_path = os.path.join(data_dir, "gui_video_opts.json")
+        with open(opts_path, "w", encoding="utf-8") as f:
+            json.dump(opts, f, ensure_ascii=False)
+        cmd += ["--opts-file", opts_path]
         if mode == "days":
             try:
                 days = max(1, min(365, int(request.form.get("days") or 7)))

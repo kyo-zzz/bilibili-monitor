@@ -11,7 +11,7 @@
   </div>
   <div class="card stat g-pink">
     <div class="stat-label"><span class="glyph g-pink"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 10.4l-4 2.3-1-1.7 3-1.8V6h2z"/></svg></span>采集轮次</div>
-    <div class="stat-value">{{ rounds | length }}+ 轮</div>
+    <div class="stat-value">{{ total_rounds }}</div>
   </div>
   <div class="card stat g-violet">
     <div class="stat-label"><span class="glyph g-violet"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg></span>覆盖范围</div>
@@ -73,6 +73,20 @@
 <!-- ============ 数据分析 ============ -->
 <div class="chart-sec-title">数据分析 <span class="dim">· 按粒度聚合最近 12 期{% if estimated %} · 含插值估算{% endif %}</span></div>
 
+{% if insight %}
+<div class="card insight-card">
+  <div class="card-title">分析评论 <span class="dim">(由助手人工撰写 · 更新于 {{ insight_mtime }})</span></div>
+  <div class="insight-body">
+    {% for line in insight.split('\n') %}
+      {% if line.startswith('## ') %}<div class="insight-h">{{ line[3:] }}</div>
+      {% elif line.startswith('- ') %}<div class="insight-li">· {{ line[2:] }}</div>
+      {% elif line.strip() == '' %}<div style="height:6px"></div>
+      {% else %}<div class="insight-p">{{ line }}</div>{% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <form class="filter-bar" method="get" action="/data" style="margin-bottom:16px">
   <div class="mode-switch">
     {% for g, label in [('daily','按日'), ('weekly','按周'), ('monthly','按月')] %}
@@ -129,13 +143,13 @@
     </table>
   </div>
   <div class="card">
-    <div class="card-title">发布时间习惯 <span class="dim">(全部监测视频)</span></div>
+    <div class="card-title">发布时间习惯 <span class="dim">(全部监测视频 · 悬停查看)</span></div>
     <div class="bar-chart small">
       {% set maxh = hour_bins | max %}
-      {% for h in hour_bins %}
-      <div class="bar-col" title="{{ h }}:00 — {{ h }} 点发布 {{ h }} 个" >
-        <div class="bar-fill butter" style="height: {{ (h / (maxh or 1) * 100) | round(1) }}%"></div>
-        <span class="bar-label">{{ h }}</span>
+      {% for n in hour_bins %}
+      <div class="bar-col" title="{{ loop.index0 }}:00 — {{ n }} 个视频在该时段发布">
+        <div class="bar-fill butter" style="height: {{ (n / (maxh or 1) * 100) | round(1) }}%"></div>
+        <span class="bar-label">{{ loop.index0 }}</span>
       </div>
       {% endfor %}
     </div>

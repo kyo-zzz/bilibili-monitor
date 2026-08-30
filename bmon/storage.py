@@ -75,6 +75,8 @@ class Database:
         acols = {r["name"] for r in self.con.execute("PRAGMA table_info(accounts)")}
         if "feed_cursor" not in acols:
             self.con.execute("ALTER TABLE accounts ADD COLUMN feed_cursor TEXT")
+        if "last_full_sweep" not in acols:
+            self.con.execute("ALTER TABLE accounts ADD COLUMN last_full_sweep TEXT")
 
     def close(self):
         try:
@@ -108,6 +110,16 @@ class Database:
     def set_feed_cursor(self, mid, cursor):
         """cursor 为 None 表示已翻完(深度回填完成)."""
         self.con.execute("UPDATE accounts SET feed_cursor=? WHERE mid=?", (cursor, mid))
+        self.con.commit()
+
+    def get_last_full_sweep(self, mid):
+        row = self.con.execute("SELECT last_full_sweep FROM accounts WHERE mid=?",
+                               (mid,)).fetchone()
+        return row["last_full_sweep"] if row else None
+
+    def set_last_full_sweep(self, mid, ts):
+        self.con.execute("UPDATE accounts SET last_full_sweep=? WHERE mid=?",
+                         (ts, mid))
         self.con.commit()
 
     # ---------- 视频 ----------
