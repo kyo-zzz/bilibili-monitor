@@ -22,7 +22,7 @@
   --shadow: 0 8px 26px rgba(26, 28, 34, .07);
 }
 
-html, body { height: 100%; }
+html { scroll-behavior: smooth; }
 body {
   font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
   background: var(--bg);
@@ -131,7 +131,7 @@ a { color: inherit; text-decoration: none; }
 /* ---------- 主区 ---------- */
 .content {
   flex: 1; padding: 28px 34px 44px; max-width: 1320px; margin: 0 auto;
-  width: 100%; position: relative; z-index: 1; overflow: hidden;
+  width: 100%; position: relative; z-index: 1;
 }
 .page-title {
   font-size: 24px; font-weight: 900; margin: 62px 0 26px;

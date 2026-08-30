@@ -493,3 +493,31 @@ GUI 已覆盖"脚本抓取 + 数据查看"全部诉求：
 - `fluid_webui_overview/videos/trend/snapshot/video/control.png`（六页全页截图，浅色新版）
 - `video_fluid/scene1~7.png`（视频七幕定帧）
 - 旧版深色截图、`webui_overview/webui_videos.png` 与经典视频文件全部原样保留
+
+---
+
+# 第十二轮（2026-08-30）：滚动bug修复 + 补采增强 + 图表插值估算
+
+## 1：Web UI 无法滚动 bug 修复（P0，已完成）
+
+- 根因：上轮为容纳描边底字给 `.content` 加了 `overflow:hidden`，配合 `html,body{height:100%}`
+  使主区被裁剪为视口高度且不可滚动；此前截图验证均裁在 900px 内未暴露
+- 修复：移除该 `overflow:hidden` 与固定高度，`body{overflow-x:hidden}` 兜住装饰性横向溢出；
+  以 Playwright 实测滚动恢复（文档高 13907px，scrollY 可达 13007），六页重截全页截图
+
+## 2：数据完整性审计与补采增强（已完成）
+
+- 审计：08-17 与 08-28 两天无快照（21:30 时电脑关机/睡眠）；08-28 的 Windows 补跑
+  落在 08-29 01:28（快照记入实际执行时刻），其余 12 天均准点
+- 调度器补采放宽：当天时间点已过但当日尚无任何采集 → GUI/scheduler 进程随时启动
+  即补触发（原限 3 小时窗口）；隔夜缺失仍由 Windows 计划任务"错过补跑"兜底
+
+## 3：图表插值估算（新功能，仅展示不入库）
+
+- 新增 `bmon/interp.py::estimate_at`：目标时刻落在两快照间→线性插值；
+  超出末快照（如当日未采集）→末段斜率外推（负斜率钳为 0，视界 7 天外持有末值）
+- `charts.agg_gains` 接入：期末值可由估算获得（基线仍取期前真实快照），
+  返回 `estimated` 标记；日报/周报/月报当前期因此不再显示为 0/偏低
+- 标注透明：估算参与时总标题追加"含未采集时段插值估算"，单图追加"（含插值估算）"
+- 配置 `charts.interpolate`（默认开）；估算结果仅用于展示聚合，绝不写入 snapshots 表
+- 测试：estimate_at 插值/外推钳位/视界 + agg_gains 开关对比，15/15 通过

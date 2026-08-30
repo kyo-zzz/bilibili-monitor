@@ -50,6 +50,7 @@ charts:
   output_dir: output/charts
   font: ""                        # 中文字体名; 留空自动探测(Windows: 微软雅黑)
   auto_refresh_seconds: 300       # index.html 自动刷新秒数(0=关闭)
+  interpolate: true               # 图表对未采集到的当日/当期数据做插值估算(仅展示, 不入快照库)
 
 logging:
   level: INFO

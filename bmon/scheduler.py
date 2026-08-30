@@ -25,7 +25,6 @@ DEFAULT_SCHEDULE = {
     "window_end": "23:59",
 }
 MIN_GAP_SECONDS = 10 * 60      # 两次采集最小间隔, 防止重叠触发
-CATCHUP_WINDOW = timedelta(hours=3)  # 时间点错过的补跑窗口(进程不在/睡眠等)
 
 
 def _data_dir(cfg):
@@ -202,13 +201,17 @@ class Scheduler:
         today = now.strftime("%Y-%m-%d")
         fired_today = state.get("fired", {}).get(today, [])
         if sch.get("times_enabled", True):
+            last_dt = last_collection(self.cfg)
             for t in sch.get("times", []):
                 if t in fired_today:
                     continue
                 hm = _parse_hhmm(t)
                 sched_dt = now.replace(hour=hm.hour, minute=hm.minute,
                                        second=0, microsecond=0)
-                if sched_dt <= now and now - sched_dt <= CATCHUP_WINDOW:
+                if sched_dt <= now and (
+                        last_dt is None or last_dt < sched_dt):
+                    # 当天时间点已过且之后没有过任何采集 → 补跑(不限时长,
+                    # 进程随时启动都能补上; 隔夜缺失由 Windows 计划任务兜底)
                     late = now - sched_dt >= timedelta(minutes=2)
                     reason = f"定时时间点 {t}" + ("(错过补跑)" if late else "")
                     fired_today.append(t)

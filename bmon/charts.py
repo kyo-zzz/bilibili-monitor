@@ -116,44 +116,66 @@ def agg_published(rows, periods):
     return counts
 
 
-def agg_gains(db, periods, rows):
+def agg_gains(db, periods, rows, interpolate=True, now=None):
     """按快照差值计算各账号每期播放增量; 同时返回最近一期增长Top视频.
 
-    基线取该期开始前最后一个快照; 若监控在中途才开始, 则以窗口内首个快照为基线
-    (即只统计观测期内的增量).
+    - 基线取该期开始前最后一个快照; 若监控在中途才开始, 以期内首个快照为基线;
+    - interpolate=True 时, 期末值由快照序列插值/外推估算(bmon.interp.estimate_at),
+      未采集到的当前日/期由此获得展示值; 估算仅用于展示, 不写入数据库;
+    - 返回 (gains, latest_top, estimated), estimated 表示本期数字含估算成分.
     """
+    from .interp import estimate_at
+    now = now or datetime.now()
     bvid_row = {r["bvid"]: r for r in rows}
     if not bvid_row:
-        return {}, []
-    start = periods[0][1].strftime(TSFMT)
+        return {}, [], False
+    anchor = (periods[0][1] - timedelta(days=10)).strftime(TSFMT)
     end = periods[-1][2].strftime(TSFMT)
-    snaps = db.snapshots_between(start, end, bvids=set(bvid_row))
+    snaps = db.snapshots_between(anchor, end, bvids=set(bvid_row))
     series = {}
     for s in snaps:
         if s["view"] is None:
             continue
-        series.setdefault(s["bvid"], []).append((s["ts"], s["view"]))  # 已按ts升序
+        series.setdefault(s["bvid"], []).append(
+            (datetime.strptime(s["ts"], TSFMT), s["view"]))  # 已按ts升序
 
     gains = {}
     latest_top = []
+    estimated = False
     last_idx = len(periods) - 1
     for bvid, ser in series.items():
         mid = bvid_row[bvid]["mid"]
         bucket = gains.setdefault(mid, [0] * len(periods))
+        times = [t for t, _ in ser]
         for i, (_, s, e) in enumerate(periods):
-            ss, ee = s.strftime(TSFMT), e.strftime(TSFMT)
-            in_p = [(t, v) for t, v in ser if ss <= t < ee]
-            if not in_p:
+            t_end = min(e, now)
+            if t_end <= s:
                 continue
-            end_v = in_p[-1][1]
-            before = [(t, v) for t, v in ser if t < ss]
-            base_v = before[-1][1] if before else in_p[0][1]
-            g = max(0, end_v - base_v)
+            if interpolate:
+                end_v, ext = estimate_at(ser, t_end)
+                if end_v is None:
+                    continue
+            else:
+                in_p = [(t, v) for t, v in ser if s <= t < e]
+                if not in_p:
+                    continue
+                end_v, ext = in_p[-1][1], False
+            before = [v for t, v in ser if t <= s]
+            if before:
+                base_v = before[-1]
+            else:
+                in_p = [(t, v) for t, v in ser if s <= t < t_end]
+                if not in_p:
+                    continue
+                base_v = in_p[0][1]
+            g = max(0, int(round(end_v - base_v)))
             bucket[i] += g
+            if ext and g > 0:
+                estimated = True
             if i == last_idx and g > 0:
                 latest_top.append((g, bvid_row[bvid]))
     latest_top.sort(key=lambda x: -x[0])
-    return gains, latest_top
+    return gains, latest_top, estimated
 
 
 # ---------- 绘图元件 ----------
@@ -339,7 +361,8 @@ def make_dashboard(db, cfg, kind, rows):
     ordered, labels, colors = account_style(cfg, rows)
 
     counts = agg_published(rows, periods)
-    gains, latest_top = agg_gains(db, periods, rows)
+    gains, latest_top, est = agg_gains(db, periods, rows,
+                                       interpolate=cc.get("interpolate", True))
 
     win_start = periods[0][1]
     win_rows = [r for r in rows if r.get("created_ts")
@@ -348,9 +371,10 @@ def make_dashboard(db, cfg, kind, rows):
 
     fig, axes = plt.subplots(2, 2, figsize=(17.5, 13), dpi=140)
     fig.patch.set_facecolor("white")
+    est_note = " · 含未采集时段插值估算" if est else ""
     fig.suptitle(
         f"B站官号视频数据{unit}报 · {period_labels[0]} ~ {period_labels[-1]}"
-        f" · 生成于 {datetime.now():%Y-%m-%d %H:%M}",
+        f" · 生成于 {datetime.now():%Y-%m-%d %H:%M}{est_note}",
         fontsize=16, fontweight="bold", color="#111")
 
     _grouped(axes[0][0], period_labels,
@@ -397,10 +421,13 @@ def make_single(db, cfg, kind, ctype, rows):
                  {m: counts.get(m, [0] * len(periods)) for m in ordered},
                  colors, labels, f"每{unit}新发布视频数", "视频数")
     elif ctype == "gained":
-        gains, _ = agg_gains(db, periods, rows)
+        gains, _, est = agg_gains(db, periods, rows,
+                                  interpolate=cc.get("interpolate", True))
+        est_note = "（含插值估算）" if est else ""
         _grouped(ax, period_labels,
                  {m: gains.get(m, [0] * len(periods)) for m in ordered},
-                 colors, labels, f"每{unit}新增播放量(快照差值)", "播放增量")
+                 colors, labels,
+                 f"每{unit}新增播放量(快照差值){est_note}", "播放增量")
     elif ctype == "top":
         win_start = periods[0][1]
         win_rows = [r for r in rows if r.get("created_ts")

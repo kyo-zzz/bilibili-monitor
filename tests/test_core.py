@@ -189,3 +189,52 @@ def test_lock_ttl_expiry(tmp_path):
         f.write('{"pid": 1, "ts": %f}' % (time.time() - 99999))
     assert lock.acquire(p, ttl=60)                    # 过期可抢占
     lock.release(p)
+
+
+# ---------- 展示插值估算(仅展示, 不入快照库) ----------
+def _dt(*a):
+    import datetime as _dt
+    return _dt.datetime(*a)
+
+
+def test_estimate_at_interpolation_and_extrapolation():
+    from bmon.interp import estimate_at
+    pts = [(_dt(2026, 8, 16, 10), 1000), (_dt(2026, 8, 16, 20), 1500)]
+    # 区间内: 线性插值
+    v, est = estimate_at(pts, _dt(2026, 8, 16, 15))
+    assert v == 1250 and est is False
+    # 末段外推: 20:00 后按斜率 50/h
+    v, est = estimate_at(pts, _dt(2026, 8, 16, 22))
+    assert v == 1600 and est is True
+    # 外推斜率为负 → 钳位为 0(持有末值)
+    pts2 = [(_dt(2026, 8, 16, 10), 2000), (_dt(2026, 8, 16, 20), 1500)]
+    v, est = estimate_at(pts2, _dt(2026, 8, 16, 22))
+    assert v == 1500 and est is True
+    # 超过 7 天视界 → 持有末值
+    v, est = estimate_at(pts, _dt(2026, 8, 30), max_horizon=__import__("datetime").timedelta(days=7))
+    assert v == 1500 and est is True
+    # 早于首点 → 持有首值
+    v, est = estimate_at(pts, _dt(2026, 8, 16, 8))
+    assert v == 1000 and est is False
+
+
+def test_agg_gains_interpolates_missing_tail(snaps):
+    """期末无快照的时段由插值/外推估算, 且计入 estimated 标记."""
+    from bmon.charts import agg_gains
+    periods = [("P1", _dt(2026, 8, 16, 0), _dt(2026, 8, 17, 0)),
+               ("P2", _dt(2026, 8, 17, 0), _dt(2026, 8, 18, 0))]
+    rows = snaps.videos_with_stats()
+    gains, top, est = agg_gains(snaps, periods, rows, interpolate=True,
+                                now=_dt(2026, 8, 17, 20))
+    # BV1: P1 基线=期前真实快照1000 → 期末17/00:00 插值≈1586 → +586;
+    #      P2 基线=期前真实快照1500(估算值不入序列) → 期末17/20:00 外推≈2014 → +514
+    assert gains[111][0] == round(1500 + 300 * (4 / 14) - 1000)
+    assert gains[111][1] == round(1800 + 300 * (10 / 14) - 1500)
+    assert est is True                                  # P2 期末为外推
+    assert any(g > 0 for g, _ in top)
+    # 关闭插值 → 旧语义: 期末=期内最后真实快照
+    gains2, _, est2 = agg_gains(snaps, periods, rows, interpolate=False,
+                                now=_dt(2026, 8, 17, 20))
+    assert gains2[111][0] == 500                        # P1 期末=期内最后快照1500
+    assert gains2[111][1] == 300                        # P2: 1800 − 基线1500
+    assert est2 is False
