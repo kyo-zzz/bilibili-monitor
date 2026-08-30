@@ -328,6 +328,9 @@ def create_app(cfg):
         except ValueError:
             fps = 30
         cmd = ["video", "--fps", str(fps)]
+        style = request.form.get("style")
+        if style in ("fluid", "classic"):
+            cmd += ["--style", style]
         if mode == "days":
             try:
                 days = max(1, min(365, int(request.form.get("days") or 7)))

@@ -453,3 +453,43 @@ GUI 已覆盖"脚本抓取 + 数据查看"全部诉求：
 - pytest 13/13 通过；compileall 通过
 - 真实并发锁验证通过；GUI 六页全部 200；视频页渲染-预览-下载全链路通过
   （新产出 `report_20260820-20260823.mp4`）；WAL 确认生效
+
+---
+
+# 第十一轮（2026-08-30）：视觉全面重设计 —— 纸感平设 × 静止系MAD
+
+## 1：Web UI 全新设计系统 "Paper Editorial"（已完成）
+
+- 应用户要求弃用深色与红蓝渐变，重写 `static/style.css`（v4）：
+  **米白纸感底色 + 平涂流行色块（珊瑚 #ff5a5a / 奶油 #f5c542 / 雾紫 #8f7bff / 薄荷 #2fbf71）
+  + 墨色文字**，完全去渐变化
+- 静止系MAD图层：每页超大描边英文底字（OVERVIEW/ARCHIVE/TRENDING/SNAPSHOT/CINEMA/CONTROL）、
+  顶部 mono 走带 ticker（无缝循环）、右上环形文字轨道（缓慢旋转）、胶片颗粒、
+  十字准星散点、右缘竖排注释
+- 编辑部式细节：统计卡自动编号 01-04 + 平涂顶色条 + 平色几何徽标、
+  账号卡幽灵描边编号、图表注记 `//` 前缀、墨色反白主按钮（hover 珊瑚硬阴影）、
+  active 导航墨块、mode 开关墨色反白
+- 背景柔色斑（奶油/雾紫/薄荷）缓漂移 + 网格点阵；`prefers-reduced-motion` 全局尊重
+- 功能零变更：全部类名保持兼容，六页结构不动
+
+## 2：流体几何风数据视频 `bmon/video_fluid.py`（已完成，两版实渲染验证）
+
+- 与经典版共享数据聚合与时间轴算法（collect/_side_timeline/_race_timeline 等直接复用），
+  classic 渲染器原样保留，`--style classic` / 配置 `video.style` / GUI 下拉三处可切换
+- 浅色平设视觉：纸感底 + 柔色斑漂移、描边底字、平涂色块、环形文字、辉光曲线、
+  圆角平涂条形竞跑、mono 注记、星星点缀
+- 七幕 49.5s：片头 → 总览(数字滚动/分游戏占比条/时间轴) → 播放量走势 →
+  净增量·视频 → 净增量·分游戏 → 播放量竞跑 → 片尾
+- 输出命名 `report_fluid_*.mp4`（与 classic 文件互不覆盖，已存在自动递增后缀）
+- 修字型问题：mono 家族仅用于纯 ASCII（日期/编号），中文数字全部回落雅黑，无豆腐块
+- 修布局问题：DELTA 卡片补 "+" 前缀；总览/竞跑日期轴首末点防重叠标注策略；
+  分游戏行幽灵编号移入面板内
+- 产出：`output/videos/report_fluid_20260825-20260829.mp4`（首版）与
+  `_2.mp4`（修正版，1920×1080/30fps/49.5s）；七幕定帧展示图存于
+  `docs/screenshots/video_fluid/`
+
+## 3：展示图（docs/screenshots/）
+
+- `fluid_webui_overview/videos/trend/snapshot/video/control.png`（六页全页截图，浅色新版）
+- `video_fluid/scene1~7.png`（视频七幕定帧）
+- 旧版深色截图、`webui_overview/webui_videos.png` 与经典视频文件全部原样保留

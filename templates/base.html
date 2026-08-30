@@ -8,6 +8,28 @@
 {% block head %}{% endblock %}
 </head>
 <body>
+<div class="bg-decor" aria-hidden="true">
+  <span class="blob b1"></span>
+  <span class="blob b2"></span>
+  <span class="blob b3"></span>
+  <span class="grid-dots"></span>
+  <span class="ring r1"></span>
+  <span class="ring r2"></span>
+  <span class="plus p1">+</span>
+  <span class="plus p2">+</span>
+  <span class="plus p3">+</span>
+  <span class="plus p4">+</span>
+  <svg class="orbit" viewBox="0 0 600 600">
+    <defs>
+      <path id="orbitPath" d="M300,300 m-238,0 a238,238 0 1,1 476,0 a238,238 0 1,1 -476,0"/>
+    </defs>
+    <circle cx="300" cy="300" r="238" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="1"/>
+    <circle cx="300" cy="300" r="204" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="1" stroke-dasharray="2 8"/>
+    <text><textPath href="#orbitPath">BILIBILI OFFICIAL DATA MONITOR ✦ LOCAL ARCHIVE ✦ FLUID SYSTEM ✦ EST.2026 ✦ GENSHIN — HSR — ZZZ ✦</textPath></text>
+  </svg>
+</div>
+<div class="grain" aria-hidden="true"></div>
+<div class="side-cap" aria-hidden="true">BMON — LOCAL DATA ARCHIVE / 2026</div>
 <aside class="sidebar">
   <div class="brand">
     <span class="brand-dot"></span>
@@ -42,6 +64,19 @@
   </div>
 </aside>
 <main class="content">
+{% set hero_en = {'/': 'OVERVIEW', '/videos': 'ARCHIVE', '/trend': 'TRENDING',
+                  '/snapshot': 'SNAPSHOT', '/video': 'CINEMA', '/control': 'CONTROL'}.get(request.path, 'BMON') %}
+<div class="hero-word" aria-hidden="true">{{ hero_en }}</div>
+<div class="ticker" aria-hidden="true">
+  <div class="ticker-track">
+    <span><b>SYSTEM</b> ONLINE</span><span>数据仅存本机 <i>LOCAL-ONLY</i></span>
+    <span>每日 21:30 自动采集</span><span>GENSHIN <i>✦</i> HONKAI:STAR RAIL <i>✦</i> ZENLESS ZONE ZERO</span>
+    <span><b>FLUID</b> GLASS SYSTEM v2</span><span>SNAPSHOT <i>640+</i> · VIDEOS <i>193</i></span>
+    <span><b>SYSTEM</b> ONLINE</span><span>数据仅存本机 <i>LOCAL-ONLY</i></span>
+    <span>每日 21:30 自动采集</span><span>GENSHIN <i>✦</i> HONKAI:STAR RAIL <i>✦</i> ZENLESS ZONE ZERO</span>
+    <span><b>FLUID</b> GLASS SYSTEM v2</span><span>SNAPSHOT <i>640+</i> · VIDEOS <i>193</i></span>
+  </div>
+</div>
 {% block content %}{% endblock %}
 <footer class="page-foot">bmon · 本地数据 · 生成于 {{ now_str() }}</footer>
 </main>

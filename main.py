@@ -256,7 +256,6 @@ def cmd_video(args):
     cfg = cfgmod.load_config(args.config)
     setup_logging(cfg)
     from bmon.storage import Database
-    from bmon import video
     db = Database(cfg["storage"]["db_path"])
     row = db.con.execute("SELECT MIN(ts), MAX(ts) FROM snapshots").fetchone()
     if not row[0]:
@@ -274,7 +273,13 @@ def cmd_video(args):
             ts_from = row[0]                       # 默认: 全部快照历史
     if ts_from >= ts_to:
         raise SystemExit("--from 必须早于 --to")
-    path = video.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
+    style = (args.style or (cfg.get("video") or {}).get("style") or "fluid").lower()
+    if style == "classic":
+        from bmon import video
+        path = video.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
+    else:
+        from bmon import video_fluid
+        path = video_fluid.make_video(db, cfg, ts_from, ts_to, fps=args.fps)
     print("已生成视频:", path)
     db.close()
 
@@ -355,6 +360,8 @@ def build_parser():
     pv.add_argument("--from", dest="frm", help="时段起点 YYYY-MM-DD [HH:MM]")
     pv.add_argument("--to", help="时段终点")
     pv.add_argument("--fps", type=int, default=30)
+    pv.add_argument("--style", choices=["fluid", "classic"], default=None,
+                    help="视觉风格: fluid=流体几何平设(默认) / classic=经典深色版")
     pv.set_defaults(func=cmd_video)
     return p
 

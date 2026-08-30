@@ -4,20 +4,20 @@
 <h1 class="page-title">总览</h1>
 
 <div class="cards">
-  <div class="card stat">
-    <div class="stat-label">监测视频</div>
+  <div class="card stat g-cyan">
+    <div class="stat-label"><span class="glyph g-cyan"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></svg></span>监测视频</div>
     <div class="stat-value">{{ videos_total }}</div>
   </div>
-  <div class="card stat">
-    <div class="stat-label">累计播放(最新快照)</div>
+  <div class="card stat g-pink">
+    <div class="stat-label"><span class="glyph g-pink"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/></svg></span>累计播放(最新快照)</div>
     <div class="stat-value">{{ fmt_num(views_total) }}</div>
   </div>
-  <div class="card stat">
-    <div class="stat-label">监测以来播放增量</div>
+  <div class="card stat g-violet">
+    <div class="stat-label"><span class="glyph g-violet"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M3.5 18.5l6-6 4 4 7-8-1.4-1.4-5.6 6.4-4-4L2.1 17.1z"/></svg></span>监测以来播放增量</div>
     <div class="stat-value up">+{{ fmt_num(growth_total) }}</div>
   </div>
-  <div class="card stat">
-    <div class="stat-label">最近采集</div>
+  <div class="card stat g-mint">
+    <div class="stat-label"><span class="glyph g-mint"><svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 10.4l-4 2.3-1-1.7 3-1.8V6h2z"/></svg></span>最近采集</div>
     <div class="stat-value sm">{{ state.get('last_cycle_at', '—') }}</div>
   </div>
 </div>

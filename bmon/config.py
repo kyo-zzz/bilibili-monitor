@@ -35,6 +35,7 @@ DEFAULTS = {
         "auto_refresh_seconds": 300,
     },
     "logging": {"level": "INFO", "file": "data/monitor.log"},
+    "video": {"style": "fluid", "fps": 30},
 }
 
 CONFIG_TEMPLATE = """\
@@ -92,6 +93,10 @@ charts:
 logging:
   level: INFO
   file: data/monitor.log
+
+video:
+  style: fluid                    # 视频视觉风格: fluid=流体几何平设(浅色) / classic=经典深色
+  fps: 30
 """
 
 
