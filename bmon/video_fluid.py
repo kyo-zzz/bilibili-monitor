@@ -21,7 +21,7 @@ from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
 from .util import fmt_num
-from .video import (SCENES, TSFMT, _bar_axis, _interp_value,
+from .video import (TSFMT, _bar_axis, _interp_value,
                     _side_timeline, _time_axis, _wrap2, collect, setup_font)
 
 log = logging.getLogger("bmon.video_fluid")
@@ -281,22 +281,21 @@ def _sc_overview(fig, i, n, data):
             ax.text(cx, y + 0.028, cv, fontsize=15.5, color=cc, ha="center",
                     fontweight="bold", alpha=a, zorder=4)
         _outline(ax, 0.905, y + 0.085, f"0{k+1}", 22, a, ha="right")
-    # 底部时间轴(仅标每日刻度; 首末点只在离刻度足够远时标注, 防重叠)
+    # 底部时间轴: 两端=起末时间, 内部逐日刻度避让(标签向内对齐不越出轴线)
     t0, t1 = _time_axis(data)
     span = (t1 - t0).total_seconds()
     ty = 0.095
+    ticks, labeled = _timeline_ticks(t0, t1)
     ax.plot([0.07, 0.93], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
-    days = _days(t0, t1)
-    labeled = list(days)
-    if days and (t1 - days[-1]).total_seconds() >= 12 * 3600:
-        labeled.append(t1)
-    for day in [t0] + days + [t1]:
+    for day in ticks:
         gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
         ax.plot([gx, gx], [ty, ty + 0.009], color=EDGE, lw=1.1, alpha=a, zorder=3)
-    for day in labeled:
+    for j, day in enumerate(labeled):
         gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
-        ax.text(gx, ty - 0.028, day.strftime("%m-%d"), fontsize=9,
-                color=DIM, ha="center", alpha=a, zorder=3)
+        ha = "left" if j == 0 else ("right" if j == len(labeled) - 1 else "center")
+        off = 0.0 if j == 0 else (-0.0 if j == len(labeled) - 1 else 0.0)
+        ax.text(gx + off, ty - 0.028, day.strftime("%m-%d"), fontsize=9,
+                color=DIM, ha=ha, alpha=a, zorder=3)
     px = 0.07 + 0.86 * p
     ax.plot([0.07, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
@@ -320,12 +319,31 @@ def _days(t0, t1):
     return out
 
 
+def _timeline_ticks(t0, t1, min_gap_h=24):
+    """时间轴刻度方案(总览/竞跑/走势共用):
+    两端端点=起始时间与末时间(必定标注), 内部为逐日0点刻度,
+    且内部刻度距两端与相邻标注需保持间距, 避免重复/拥挤/越出轴线.
+    返回 (刻度点列表, 需标注点列表)."""
+    from datetime import timedelta as _td
+    min_gap = _td(hours=min_gap_h)
+    days = [d for d in _days(t0, t1)
+            if (d - t0) >= min_gap and (t1 - d) >= min_gap]
+    labeled = list(days)
+    if labeled and (t1 - labeled[-1]) < min_gap:
+        labeled = labeled[:-1]
+    labeled = [t0] + labeled + [t1]
+    return [t0] + days + [t1], labeled
+
+
 def _axis_days(ax, t0, t1, x0, x1, y0, a, y1):
     span = (t1 - t0).total_seconds()
+    ticks, labeled = _timeline_ticks(t0, t1)
     ax.plot([x0, x1], [y0, y0], color=EDGE, lw=1.3, alpha=a, zorder=3)
-    for day in _days(t0, t1):
+    for day in ticks:
         gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
         ax.plot([gx, gx], [y0, y1], color=GRID, lw=0.9, alpha=a * 0.9, zorder=2)
+    for day in labeled:
+        gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
         ax.text(gx, y0 - 0.030, day.strftime("%m-%d"), fontsize=10,
                 color=DIM, ha="center", alpha=a, zorder=3)
 
@@ -337,25 +355,30 @@ def _glow_curve(ax, xs, ys, color, lw, a, z=4):
             solid_capstyle="round", zorder=z + 1)
 
 
-def _trend_like(fig, i, n, data, kind):
-    """播放量走势 / 净增量走势·视频 两幕共用骨架."""
+def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
+                en=None, title=None, sub=None, accent=None):
+    """播放量走势 / 净增量走势·视频 / 净增量·近期视频 共用骨架."""
     ax = _full_ax(fig)
     a = _fade(i, n)
     _bg(ax, i / 10)
-    sc = "trend" if kind == "view" else "gains_videos"
+    sc = scene or ("trend" if kind == "view" else "gains_videos")
     top_n = max(1, int(_o(data, sc, "top", 8)))
-    trend = data["trend"][:top_n]
+    pool = trend_items if trend_items is not None else data["trend"]
+    trend = pool[:top_n]
     line_w = float(_o(data, sc, "line_width", 2.6))
     show_dots = bool(_o(data, sc, "dots", True))
     label_w = int(_o(data, sc, "label_width", 24))
     axis_pad = float(_o(data, sc, "axis_pad", 0.12))
-    en = "TRENDING" if kind == "view" else "GAINS / VIDEO"
-    title = ("播放量走势" if kind == "view"
-             else "净增量走势 · 视频")
-    sub = (f"变化最显著的 Top{len(trend)} 视频 · 辉光曲线"
-           if kind == "view" else f"Top{len(trend)} 视频各自净增量 · 零基线")
-    _header(ax, i, n, en, title, sub, _period(data),
-            accent=CYAN if kind == "view" else VIOLET)
+    if en is None:
+        en = "TRENDING" if kind == "view" else "GAINS / VIDEO"
+    if title is None:
+        title = "播放量走势" if kind == "view" else "净增量走势 · 视频"
+    if sub is None:
+        sub = (f"变化最显著的 Top{len(trend)} 视频 · 辉光曲线"
+               if kind == "view" else f"Top{len(trend)} 视频各自净增量 · 零基线")
+    if accent is None:
+        accent = CYAN if kind == "view" else VIOLET
+    _header(ax, i, n, en, title, sub, _period(data), accent=accent)
     if not trend:
         ax.text(0.5, 0.45, "本期暂无趋势数据", fontsize=19, color=DIM,
                 ha="center", alpha=a)
@@ -393,9 +416,7 @@ def _trend_like(fig, i, n, data, kind):
             ax.plot([x0, x1], [vy(v)] * 2, color=GRID, lw=0.9,
                     linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
-    pad = data.get("_pads", {}).get(
-        "trend" if kind == "view" else "gains_videos",
-        max(6, int(n * 0.25)))
+    pad = data.get("_pads", {}).get(sc, max(6, int(n * 0.25)))
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
     for it in trend:
         f0 = it["pts"][0][0]
@@ -421,10 +442,9 @@ def _trend_like(fig, i, n, data, kind):
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, linestyle=(0, (3, 4)),
                 alpha=a * 0.5, zorder=3)
 
-    key = "_side_trend" if kind == "view" else "_side_gains"
+    key = f"_side_{sc}"
     pad = data.get("_pads", {}).get(
-        "trend" if kind == "view" else "gains_videos",
-        max(6, int(n * 0.25)))
+        sc, max(6, int(n * 0.25)))
     side = data.get(key)
     if side is None:
         fn = (lambda it, tt: _interp_value(it["pts"], tt)) if kind == "view" \
@@ -455,6 +475,26 @@ def _sc_trend(fig, i, n, data):
 
 def _sc_gains_videos(fig, i, n, data):
     _trend_like(fig, i, n, data, "gain")
+
+
+def _recent_filter(items, t0, t1, mult=2.0):
+    """仅保留发布时间在 数据跨度×mult 内的视频(默认2倍), 按期末播放降序."""
+    cutoff = (t1 - (t1 - t0) * mult).timestamp()
+    out = [it for it in items if (it.get("created_ts") or 0) >= cutoff]
+    return sorted(out, key=lambda x: -x["end"])
+
+
+def _sc_gains_recent(fig, i, n, data):
+    t0, t1 = _time_axis(data)
+    pool = _recent_filter(data.get("trend_all") or [], t0, t1)
+    span_days = max(1, round((t1 - t0).total_seconds() / 86400))
+    cutoff_d = (t1 - (t1 - t0) * 2).strftime("%m-%d")
+    _trend_like(
+        fig, i, n, data, "gain", trend_items=pool, scene="gains_recent",
+        en="GAINS / RECENT", title="净增量走势 · 近期视频",
+        sub=(f"仅收录 {cutoff_d} 后发布的视频(数据跨度 {span_days} 天 × 2) "
+             f"· 命中 {len(pool)} 个 · 零基线"),
+        accent=GREEN)
 
 
 def _sc_gains_games(fig, i, n, data):
@@ -585,22 +625,20 @@ def _sc_bars(fig, i, n, data):
         ax.text(0.985, y, fmt_num(int(v)), fontsize=10.5, color=DIM,
                 va="center", ha="right", alpha=a, zorder=5)
 
-    # 底部日期轴 + 进度(标每日刻度; 末点离最后刻度足够远才标, 防重叠)
+    # 底部日期轴 + 进度(两端=起末时间, 标签向内对齐不越出轴线)
     span = (t1 - t0).total_seconds()
     ty = 0.112
+    ticks, labeled = _timeline_ticks(t0, t1)
     ax.plot([left, right], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
-    days = _days(t0, t1)
-    labeled = list(days)
-    if days and (t1 - days[-1]).total_seconds() >= 12 * 3600:
-        labeled.append(t1)
-    for day in [t0] + days + [t1]:
+    for day in ticks:
         gx = left + (right - left) * (day - t0).total_seconds() / span
         ax.plot([gx, gx], [ty, ty + 0.008], color=EDGE, lw=1.0, alpha=a,
                 zorder=3)
-    for day in labeled:
+    for j, day in enumerate(labeled):
         gx = left + (right - left) * (day - t0).total_seconds() / span
+        ha = "left" if j == 0 else ("right" if j == len(labeled) - 1 else "center")
         ax.text(gx, ty - 0.026, day.strftime("%m-%d"), fontsize=8.5,
-                color=DIM, ha="center", alpha=a, zorder=3)
+                color=DIM, ha=ha, alpha=a, zorder=3)
     px = left + (right - left) * (fr["t"] - t0).total_seconds() / span
     ax.plot([left, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
@@ -658,8 +696,14 @@ def _sc_end(fig, i, n, data):
                    (0.52, 0.72, 8, 4.6)], t, a)
 
 
+# 流体几何版场景表(在 classic 基础上多一幕"净增量·近期视频")
+SCENES_FLUID = [("title", 3.0), ("overview", 6.5), ("trend", 10.0),
+                ("gains_videos", 9.0), ("gains_recent", 8.0),
+                ("gains_games", 8.0), ("bars", 10.0), ("end", 3.0)]
+
 _DRAW = {"title": _sc_title, "overview": _sc_overview, "trend": _sc_trend,
-         "gains_videos": _sc_gains_videos, "gains_games": _sc_gains_games,
+         "gains_videos": _sc_gains_videos, "gains_recent": _sc_gains_recent,
+         "gains_games": _sc_gains_games,
          "bars": _sc_bars, "end": _sc_end}
 
 
@@ -737,7 +781,7 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
 
     bounds, acc = [], 0
     pads = {}
-    for name, dur in SCENES:
+    for name, dur in SCENES_FLUID:
         dur = float(scene_seconds.get(name, dur))
         nf = max(1, int(dur * fps)) if dur > 0 else 0
         pads[name] = max(6, int(nf * (1 - sweep_frac)))

@@ -314,7 +314,7 @@ def cmd_video(args):
             except ValueError:
                 raise SystemExit(f"--scene 格式错误: {item} (应为 名称=秒数, "
                                  f"如 bars=12; 可用: title/overview/trend/"
-                                 f"gains_videos/gains_games/bars/end)")
+                                 f"gains_videos/gains_recent/gains_games/bars/end)")
         opts = {
             "scene_seconds": scene_seconds,
             "sweep_frac": args.sweep_frac if args.sweep_frac is not None

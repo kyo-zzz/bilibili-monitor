@@ -439,6 +439,7 @@ def create_app(cfg):
                                 "label_width", "dots"],
                       "gains_videos": ["dur", "top", "line_width", "label_width",
                                        "zero_base"],
+                      "gains_recent": ["dur", "top", "line_width", "label_width"],
                       "gains_games": ["dur"],
                       "bars": ["dur", "top", "truncate_thr", "bar_h"],
                       "end": ["dur", "text"]}

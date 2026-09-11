@@ -140,10 +140,14 @@ def collect(db, cfg, ts_from, ts_to, trend_pool=8, tops_pool=10):
             "color": colors.get(m.get("mid"), "#999"),
             "pts": pts, "start": pts[0][1], "end": pts[-1][1],
             "growth": max(0, pts[-1][1] - pts[0][1]),
+            "created_ts": m.get("created_ts"),
         })
 
     trend = sorted([it for it in items if it["end"] and it["growth"] > 0],
                    key=lambda x: -x["end"])[:trend_pool]
+    # trend_all: 未截断池(供"仅近期视频"等场景自行筛选), classic 不使用
+    trend_all = sorted([it for it in items if it["end"] and it["growth"] > 0],
+                       key=lambda x: -x["end"])
     tops = sorted([it for it in items if it["growth"] > 0],
                   key=lambda x: -x["growth"])[:tops_pool]
     summary = {
@@ -181,7 +185,7 @@ def collect(db, cfg, ts_from, ts_to, trend_pool=8, tops_pool=10):
         acc_gains.append({**acc, "pts": pts, "end": pts[-1][1]})
     acc_gains.sort(key=lambda x: -x["end"])
 
-    return {"trend": trend, "tops": tops, "summary": summary,
+    return {"trend": trend, "trend_all": trend_all, "tops": tops, "summary": summary,
             "accounts": accounts, "acc_gains": acc_gains,
             "labels": labels, "colors": colors, "ordered": ordered,
             "ts_from": ts_from, "ts_to": ts_to}
