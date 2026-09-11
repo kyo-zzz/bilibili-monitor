@@ -313,27 +313,35 @@ def _day_ticks(t0, t1):
     return out
 
 
-def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn, side_pad=90):
+def _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, val_fn, side_pad=90,
+                   gap=None):
     """预计算右侧标签时间轴: 标签纵向位置跟随各自折线当前值(一一对应),
-    帧间平滑过渡且互相防重叠; 同时返回各视频连续插值后的当前数值(跳字用)."""
-    gap = 0.075
+    帧间平滑过渡且互相防重叠(自下而上瀑布分配, 贴底时向上堆叠不叠印);
+    同时返回各视频连续插值后的当前数值(跳字用)."""
 
     def vy(v):
         return y0 + (y1 - y0) * (v - lo) / (hi - lo) if hi > lo else y0
 
+    n_lab = max(1, len(trend))
+    if gap is None:
+        gap = min(0.075, (y1 - y0 - 0.03) / n_lab)
+    floor = y0 + 0.01
+    ceil = y1 - 0.01
     frames, ys = [], None
     denom = max(1, n - side_pad)
     for i in range(n):
         st = t0 + (t1 - t0) * min(1.0, i / denom)
         vals = {it["bvid"]: val_fn(it, st) for it in trend}
         targets = {b: vy(v) for b, v in vals.items()}
-        adj, prev = {}, None
+        # 自下而上瀑布: 值最小者贴底先放, 依次向上, 同一 floor 逐个抬高
+        adj, f = {}, floor
+        for b in sorted(vals, key=lambda b: vals[b]):
+            adj[b] = max(min(targets[b], ceil), f)
+            f = adj[b] + gap
+        f = ceil
         for b in sorted(vals, key=lambda b: -vals[b]):
-            ty = targets[b]
-            if prev is not None:
-                ty = min(ty, prev - gap)
-            adj[b] = max(ty, y0 + 0.01)
-            prev = adj[b]
+            adj[b] = min(adj[b], f)
+            f = adj[b] - gap
         if ys is None:
             ys = dict(adj)
         else:

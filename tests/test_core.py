@@ -185,6 +185,45 @@ def test_full_sweep_due():
     assert full_sweep_due("bad", now, 3, 45) is True          # 坏数据视为到期
 
 
+# ---------- 视频时间轴: 归一化日域(均匀分格) ----------
+def test_time_axis_day_normalized():
+    import datetime as dt
+    from bmon.video_fluid import _time_axis, _day_cells
+    d0, d1 = _time_axis({"ts_from": "2026-09-04 21:30:00",
+                         "ts_to": "2026-09-11 21:30:00"})
+    assert d0 == _dt(2026, 9, 4)                              # 起始日 00:00
+    assert d1 == _dt(2026, 9, 12)                             # 末.session 日次日 00:00
+    ticks, labeled = _day_cells(d0, d1)
+    assert len(ticks) == 9                                    # 8 格 9 刻度
+    assert ticks[2] - ticks[0] == dt.timedelta(days=2)        # 9/4→9/6 恰两格
+    assert [t.strftime("%m-%d") for t in labeled] == \
+        ["09-04", "09-05", "09-06", "09-07", "09-08", "09-09", "09-10", "09-11"]
+    assert labeled[-1] < d1                                   # 末端刻度不标注
+
+
+def test_recent_filter_fallback():
+    from bmon.video_fluid import _recent_filter
+    t0, t1 = _dt(2026, 9, 4, 21, 30), _dt(2026, 9, 11, 21, 30)
+    items = [
+        {"bvid": "A", "created_ts": _dt(2026, 9, 10).timestamp(),
+         "end": 500, "start": 0},
+        {"bvid": "B", "created_ts": _dt(2026, 8, 20).timestamp(),
+         "end": 900, "start": 0},
+        {"bvid": "C", "created_ts": _dt(2026, 8, 1).timestamp(),
+         "end": 700, "start": 0},
+        {"bvid": "D", "created_ts": _dt(2026, 7, 1).timestamp(),
+         "end": 600, "start": 0},
+    ]
+    out, eff, fb = _recent_filter(items, t0, t1, top_n=3)
+    assert [o["bvid"] for o in out] == ["B", "C", "A"]        # 按期末播放降序
+    assert fb is True and eff == _dt(2026, 8, 1).timestamp()
+    # 范围内足够 → 不触发兜底
+    out2, _, fb2 = _recent_filter(items[:2] + [
+        {"bvid": "E", "created_ts": _dt(2026, 9, 9).timestamp(),
+         "end": 100, "start": 0}], t0, t1, top_n=2)
+    assert fb2 is False and len(out2) == 2
+
+
 # ---------- lock ----------
 def test_lock_mutual_exclusion(tmp_path):
     p = str(tmp_path / "fetch.lock")

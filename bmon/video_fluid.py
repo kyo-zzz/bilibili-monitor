@@ -8,7 +8,7 @@
 import logging
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import matplotlib
 matplotlib.use("Agg")
@@ -285,22 +285,21 @@ def _sc_overview(fig, i, n, data):
     t0, t1 = _time_axis(data)
     span = (t1 - t0).total_seconds()
     ty = 0.095
-    ticks, labeled = _timeline_ticks(t0, t1)
+    ticks, labeled = _day_cells(t0, t1)
     ax.plot([0.07, 0.93], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
     for day in ticks:
         gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
         ax.plot([gx, gx], [ty, ty + 0.009], color=EDGE, lw=1.1, alpha=a, zorder=3)
-    for j, day in enumerate(labeled):
+    for day in labeled:
         gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
-        ha = "left" if j == 0 else ("right" if j == len(labeled) - 1 else "center")
-        off = 0.0 if j == 0 else (-0.0 if j == len(labeled) - 1 else 0.0)
-        ax.text(gx + off, ty - 0.028, day.strftime("%m-%d"), fontsize=9,
-                color=DIM, ha=ha, alpha=a, zorder=3)
+        ax.text(gx, ty - 0.028, day.strftime("%m-%d"), fontsize=9,
+                color=DIM, ha=_edge_ha(gx, 0.07, 0.93), alpha=a, zorder=3)
     px = 0.07 + 0.86 * p
     ax.plot([0.07, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
     ax.plot([px], [ty], "o", color=CYAN, ms=14, alpha=a * 0.2, zorder=4)
-    ax.text(px, ty + 0.022, (t0 + (t1 - t0) * p).strftime("%m-%d"),
+    cur = min(t0 + (t1 - t0) * p, t1 - timedelta(seconds=1))
+    ax.text(px, ty + 0.022, cur.strftime("%m-%d"),
             fontsize=9.5, color=CYAN, ha="center",
             fontweight="bold", alpha=a, zorder=5)
 
@@ -309,35 +308,45 @@ def _period(data):
     return f"{data['ts_from'][:10]} ~ {data['ts_to'][:10]}"
 
 
-def _days(t0, t1):
-    from datetime import timedelta
-    day = (t0 + timedelta(days=1)).replace(hour=0, minute=0, second=0)
-    out = []
-    while day < t1:
-        out.append(day)
-        day += timedelta(days=1)
-    return out
+def _time_axis(data):
+    """轴域归一化到自然日边界: 起点日 00:00 → 末.session 日的次日 00:00,
+    保证时间轴按日期均匀分格(9/4→9/6 恰好两格)."""
+    t0 = datetime.strptime(data["ts_from"], TSFMT)
+    t1 = datetime.strptime(data["ts_to"], TSFMT)
+    if t1 <= t0:
+        t1 = t0 + timedelta(days=1)
+    d0 = t0.replace(hour=0, minute=0, second=0, microsecond=0)
+    d1 = (t1.replace(hour=0, minute=0, second=0, microsecond=0)
+          + timedelta(days=1))
+    return d0, d1
 
 
-def _timeline_ticks(t0, t1, min_gap_h=24):
-    """时间轴刻度方案(总览/竞跑/走势共用):
-    两端端点=起始时间与末时间(必定标注), 内部为逐日0点刻度,
-    且内部刻度距两端与相邻标注需保持间距, 避免重复/拥挤/越出轴线.
-    返回 (刻度点列表, 需标注点列表)."""
-    from datetime import timedelta as _td
-    min_gap = _td(hours=min_gap_h)
-    days = [d for d in _days(t0, t1)
-            if (d - t0) >= min_gap and (t1 - d) >= min_gap]
-    labeled = list(days)
-    if labeled and (t1 - labeled[-1]) < min_gap:
-        labeled = labeled[:-1]
-    labeled = [t0] + labeled + [t1]
-    return [t0] + days + [t1], labeled
+def _day_cells(t0d, t1d, max_labels=15):
+    """轴域为整日格: 返回 (全部日界刻度, 需标注刻度).
+
+    刻度=每个自然日边界(均匀 1 格/日, 长跨度按 k 格抽稀但保持均匀);
+    标注=单元格起始日期(09-04 在轴起点, 之后每 k 格一个),
+    轴末端边界(末.session 日的 24:00)只留刻度不标注, 不越出轴线.
+    """
+    n_cells = max(1, int((t1d - t0d).total_seconds() // 86400))
+    k = max(1, -(-n_cells // max(4, max_labels)))   # ceil
+    ticks = [t0d + timedelta(days=i) for i in range(n_cells + 1)]
+    labeled = [t for i, t in enumerate(ticks) if i % k == 0 and i < n_cells]
+    return ticks, labeled
+
+
+def _edge_ha(gx, x_lo, x_hi, margin=0.035):
+    """端点附近标签向内对齐, 防止越出轴线两端."""
+    if gx - x_lo < margin:
+        return "left"
+    if x_hi - gx < margin:
+        return "right"
+    return "center"
 
 
 def _axis_days(ax, t0, t1, x0, x1, y0, a, y1):
     span = (t1 - t0).total_seconds()
-    ticks, labeled = _timeline_ticks(t0, t1)
+    ticks, labeled = _day_cells(t0, t1)
     ax.plot([x0, x1], [y0, y0], color=EDGE, lw=1.3, alpha=a, zorder=3)
     for day in ticks:
         gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
@@ -345,7 +354,7 @@ def _axis_days(ax, t0, t1, x0, x1, y0, a, y1):
     for day in labeled:
         gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
         ax.text(gx, y0 - 0.030, day.strftime("%m-%d"), fontsize=10,
-                color=DIM, ha="center", alpha=a, zorder=3)
+                color=DIM, ha=_edge_ha(gx, x0, x1), alpha=a, zorder=3)
 
 
 def _glow_curve(ax, xs, ys, color, lw, a, z=4):
@@ -477,24 +486,40 @@ def _sc_gains_videos(fig, i, n, data):
     _trend_like(fig, i, n, data, "gain")
 
 
-def _recent_filter(items, t0, t1, mult=2.0):
-    """仅保留发布时间在 数据跨度×mult 内的视频(默认2倍), 按期末播放降序."""
+def _recent_filter(items, t0, t1, top_n=8, mult=2.0):
+    """仅收录发布时间在 数据跨度×mult 内的视频; 若不足 top_n 个,
+    按发布时间从近到远继续向前回溯补满(兜底).
+    返回 (按期末播放降序列表, 实际最早发布时间戳, 是否触发兜底)."""
     cutoff = (t1 - (t1 - t0) * mult).timestamp()
-    out = [it for it in items if (it.get("created_ts") or 0) >= cutoff]
-    return sorted(out, key=lambda x: -x["end"])
+    in_range = [it for it in items if (it.get("created_ts") or 0) >= cutoff]
+    if len(in_range) >= top_n:
+        return sorted(in_range, key=lambda x: -x["end"]), cutoff, False
+    # 兜底: 目标范围不足, 从最新往旧补满
+    picked = {it["bvid"] for it in in_range}
+    rest = sorted((it for it in items if it["bvid"] not in picked),
+                  key=lambda x: -(x.get("created_ts") or 0))
+    out = list(in_range) + rest[:max(0, top_n - len(in_range))]
+    eff = min((it.get("created_ts") or 0) for it in out) if out else cutoff
+    return sorted(out, key=lambda x: -x["end"]), eff, True
 
 
 def _sc_gains_recent(fig, i, n, data):
-    t0, t1 = _time_axis(data)
-    pool = _recent_filter(data.get("trend_all") or [], t0, t1)
-    span_days = max(1, round((t1 - t0).total_seconds() / 86400))
-    cutoff_d = (t1 - (t1 - t0) * 2).strftime("%m-%d")
+    rt0 = datetime.strptime(data["ts_from"], TSFMT)
+    rt1 = datetime.strptime(data["ts_to"], TSFMT)
+    top_n = max(1, int(_o(data, "gains_recent", "top", 8)))
+    span_days = max(1, round((rt1 - rt0).total_seconds() / 86400))
+    pool, eff_ts, fell_back = _recent_filter(
+        data.get("trend_all") or [], rt0, rt1, top_n=top_n, mult=2.0)
+    cutoff_d = (rt1 - (rt1 - rt0) * 2).strftime("%m-%d")
+    sub = f"仅收录 {cutoff_d} 后发布的视频(数据跨度 {span_days} 天 × 2)"
+    if fell_back:
+        sub += f" · 不足 {top_n} 个已兜底回溯至 " \
+               f"{datetime.fromtimestamp(eff_ts).strftime('%m-%d')}"
+    sub += f" · 命中 {len(pool)} 个 · 零基线"
     _trend_like(
         fig, i, n, data, "gain", trend_items=pool, scene="gains_recent",
         en="GAINS / RECENT", title="净增量走势 · 近期视频",
-        sub=(f"仅收录 {cutoff_d} 后发布的视频(数据跨度 {span_days} 天 × 2) "
-             f"· 命中 {len(pool)} 个 · 零基线"),
-        accent=GREEN)
+        sub=sub, accent=GREEN)
 
 
 def _sc_gains_games(fig, i, n, data):
@@ -628,22 +653,22 @@ def _sc_bars(fig, i, n, data):
     # 底部日期轴 + 进度(两端=起末时间, 标签向内对齐不越出轴线)
     span = (t1 - t0).total_seconds()
     ty = 0.112
-    ticks, labeled = _timeline_ticks(t0, t1)
+    ticks, labeled = _day_cells(t0, t1)
     ax.plot([left, right], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
     for day in ticks:
         gx = left + (right - left) * (day - t0).total_seconds() / span
         ax.plot([gx, gx], [ty, ty + 0.008], color=EDGE, lw=1.0, alpha=a,
                 zorder=3)
-    for j, day in enumerate(labeled):
+    for day in labeled:
         gx = left + (right - left) * (day - t0).total_seconds() / span
-        ha = "left" if j == 0 else ("right" if j == len(labeled) - 1 else "center")
         ax.text(gx, ty - 0.026, day.strftime("%m-%d"), fontsize=8.5,
-                color=DIM, ha=ha, alpha=a, zorder=3)
+                color=DIM, ha=_edge_ha(gx, left, right), alpha=a, zorder=3)
     px = left + (right - left) * (fr["t"] - t0).total_seconds() / span
     ax.plot([left, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
     ax.plot([px], [ty], "o", color=CYAN, ms=13, alpha=a * 0.2, zorder=4)
-    ax.text(px, ty + 0.020, fr["t"].strftime("%m-%d"), fontsize=9.5,
+    cur = min(fr["t"], t1 - timedelta(seconds=1))
+    ax.text(px, ty + 0.020, cur.strftime("%m-%d"), fontsize=9.5,
             color=CYAN, ha="center",
             fontweight="bold", alpha=a, zorder=5)
 
