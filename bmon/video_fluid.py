@@ -425,6 +425,7 @@ def _trend_like(fig, i, n, data, kind):
     pad = data.get("_pads", {}).get(
         "trend" if kind == "view" else "gains_videos",
         max(6, int(n * 0.25)))
+    side = data.get(key)
     if side is None:
         fn = (lambda it, tt: _interp_value(it["pts"], tt)) if kind == "view" \
             else (lambda it, tt: _interp_value(it["pts"], tt) - it["start"])
