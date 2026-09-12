@@ -322,21 +322,21 @@ def _time_axis(data):
 def _day_cells(t0d, t1, max_labels=15):
     """返回 (全部刻度, 需标注刻度). 轴域 [起始日00:00, 末时间]:
 
-    刻度=起点 + 每个自然日0点 + 末端(=末时间); 内部日期格均匀(1格/日,
-    长跨度按 k 格均匀抽稀); 标注=起点日期 + 各日0点日期, 但与末时间同日的
-    0点不标注(该日期由末端承担, 保证最右侧就是末时间且其后无空白).
+    刻度=起点 + 每个自然日0点 + 末端(=末时间); 末时间所在日的 0 点格线删去
+    (09-10 直连末端一格, 不多出半格); 标注=起点日期 + 各日0点日期, 与末时间
+    同日的 0 点不标注(该日期由末端承担, 保证最右侧就是末时间且其后无空白).
+    长跨度按 k 格均匀抽稀.
     """
     ticks = [t0d]
     m = t0d + timedelta(days=1)
     while m < t1:
-        ticks.append(m)
+        if m.date() != t1.date():                 # 末日的0点格线删去
+            ticks.append(m)
         m += timedelta(days=1)
     ticks.append(t1)                              # 末端=末时间
-    last_mid = ticks[-2]
-    same_day = last_mid.date() == t1.date()
     n_cells = max(1, int((t1 - t0d).total_seconds() // 86400))
     k = max(1, -(-n_cells // max(4, max_labels)))  # ceil
-    mids = [t for t in ticks[1:-1] if not (same_day and t.date() == t1.date())]
+    mids = ticks[1:-1]
     labeled = [t0d] + [t for i, t in enumerate(mids, 1) if i % k == 0] + [t1]
     return ticks, labeled
 
@@ -435,12 +435,14 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
     sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
     for it in trend:
         f0 = it["pts"][0][0]
-        if sweep < f0:
-            continue
         xs, ys = [], []
         for k in range(121):
-            tt = f0 + (sweep - f0) * k / 120
-            v = _interp_value(it["pts"], tt)
+            tt = t0 + (sweep - t0) * k / 120     # 折线一律从轴起点(09-04)开始
+            if tt < f0:
+                # 首个快照之前: 增长幕贴轴为零; 播放量幕平推首值
+                v = it["pts"][0][1] if kind == "view" else it["start"]
+            else:
+                v = _interp_value(it["pts"], tt)
             if kind == "gain":
                 v -= it["start"]
             xs.append(tx(tt))
