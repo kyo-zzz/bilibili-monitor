@@ -202,6 +202,17 @@ def test_time_axis_day_normalized():
     assert _interp_x(pts, 0.5) == 150 and _interp_x(pts, 9) == 400
 
 
+def test_recent_filter_caps_to_top_n():
+    """范围内视频多于 top_n 时必须截断(竞跑 Top38 bug 回归测试)."""
+    from bmon.video_fluid import _recent_filter
+    t0, t1 = _dt(2026, 9, 4), _dt(2026, 9, 11)
+    items = [{"bvid": f"B{i}", "created_ts": _dt(2026, 9, 5).timestamp() + i,
+              "end": 1000 - i, "start": 0} for i in range(38)]
+    out, _, fb = _recent_filter(items, t0, t1, top_n=10, mult=2.0)
+    assert len(out) == 10 and fb is False
+    assert out[0]["end"] == 1000 and out[-1]["end"] == 991   # 按期末播放降序取前十
+
+
 def test_recent_filter_fallback():
     from bmon.video_fluid import _recent_filter
     t0, t1 = _dt(2026, 9, 4, 21, 30), _dt(2026, 9, 11, 21, 30)

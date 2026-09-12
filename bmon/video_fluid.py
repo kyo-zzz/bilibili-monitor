@@ -524,7 +524,7 @@ def _recent_filter(items, t0, t1, top_n=8, mult=2.0):
     cutoff = (t1 - (t1 - t0) * mult).timestamp()
     in_range = [it for it in items if (it.get("created_ts") or 0) >= cutoff]
     if len(in_range) >= top_n:
-        return sorted(in_range, key=lambda x: -x["end"]), cutoff, False
+        return sorted(in_range, key=lambda x: -x["end"])[:top_n], cutoff, False
     # 兜底: 目标范围不足, 从最新往旧补满
     picked = {it["bvid"] for it in in_range}
     rest = sorted((it for it in items if it["bvid"] not in picked),
