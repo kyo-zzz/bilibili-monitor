@@ -309,29 +309,35 @@ def _period(data):
 
 
 def _time_axis(data):
-    """轴域归一化到自然日边界: 起点日 00:00 → 末.session 日的次日 00:00,
-    保证时间轴按日期均匀分格(9/4→9/6 恰好两格)."""
+    """轴域: 起点=起始日 00:00(保证内部日期格均匀), 末端=末时间本身
+    (右边缘就是最后一个数据时刻, 其后不再留空)."""
     t0 = datetime.strptime(data["ts_from"], TSFMT)
     t1 = datetime.strptime(data["ts_to"], TSFMT)
     if t1 <= t0:
         t1 = t0 + timedelta(days=1)
     d0 = t0.replace(hour=0, minute=0, second=0, microsecond=0)
-    d1 = (t1.replace(hour=0, minute=0, second=0, microsecond=0)
-          + timedelta(days=1))
-    return d0, d1
+    return d0, t1
 
 
-def _day_cells(t0d, t1d, max_labels=15):
-    """轴域为整日格: 返回 (全部日界刻度, 需标注刻度).
+def _day_cells(t0d, t1, max_labels=15):
+    """返回 (全部刻度, 需标注刻度). 轴域 [起始日00:00, 末时间]:
 
-    刻度=每个自然日边界(均匀 1 格/日, 长跨度按 k 格抽稀但保持均匀);
-    标注=单元格起始日期(09-04 在轴起点, 之后每 k 格一个),
-    轴末端边界(末.session 日的 24:00)只留刻度不标注, 不越出轴线.
+    刻度=起点 + 每个自然日0点 + 末端(=末时间); 内部日期格均匀(1格/日,
+    长跨度按 k 格均匀抽稀); 标注=起点日期 + 各日0点日期, 但与末时间同日的
+    0点不标注(该日期由末端承担, 保证最右侧就是末时间且其后无空白).
     """
-    n_cells = max(1, int((t1d - t0d).total_seconds() // 86400))
-    k = max(1, -(-n_cells // max(4, max_labels)))   # ceil
-    ticks = [t0d + timedelta(days=i) for i in range(n_cells + 1)]
-    labeled = [t for i, t in enumerate(ticks) if i % k == 0 and i < n_cells]
+    ticks = [t0d]
+    m = t0d + timedelta(days=1)
+    while m < t1:
+        ticks.append(m)
+        m += timedelta(days=1)
+    ticks.append(t1)                              # 末端=末时间
+    last_mid = ticks[-2]
+    same_day = last_mid.date() == t1.date()
+    n_cells = max(1, int((t1 - t0d).total_seconds() // 86400))
+    k = max(1, -(-n_cells // max(4, max_labels)))  # ceil
+    mids = [t for t in ticks[1:-1] if not (same_day and t.date() == t1.date())]
+    labeled = [t0d] + [t for i, t in enumerate(mids, 1) if i % k == 0] + [t1]
     return ticks, labeled
 
 

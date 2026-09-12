@@ -185,20 +185,21 @@ def test_full_sweep_due():
     assert full_sweep_due("bad", now, 3, 45) is True          # 坏数据视为到期
 
 
-# ---------- 视频时间轴: 归一化日域(均匀分格) ----------
+# ---------- 视频时间轴: 起始日0点 + 末端=末时间(右侧无空白) ----------
 def test_time_axis_day_normalized():
     import datetime as dt
     from bmon.video_fluid import _time_axis, _day_cells
     d0, d1 = _time_axis({"ts_from": "2026-09-04 21:30:00",
                          "ts_to": "2026-09-11 21:30:00"})
     assert d0 == _dt(2026, 9, 4)                              # 起始日 00:00
-    assert d1 == _dt(2026, 9, 12)                             # 末.session 日次日 00:00
+    assert d1 == _dt(2026, 9, 11, 21, 30)                     # 末端=末时间(右侧无空白)
     ticks, labeled = _day_cells(d0, d1)
-    assert len(ticks) == 9                                    # 8 格 9 刻度
+    assert ticks[-1] == d1                                    # 轴末端=末时间
     assert ticks[2] - ticks[0] == dt.timedelta(days=2)        # 9/4→9/6 恰两格
+    # 9-11 的 0 点网格线不标注(由末端承担该日期), 避免 09-11 重复
     assert [t.strftime("%m-%d") for t in labeled] == \
         ["09-04", "09-05", "09-06", "09-07", "09-08", "09-09", "09-10", "09-11"]
-    assert labeled[-1] < d1                                   # 末端刻度不标注
+    assert labeled[-1] == d1
 
 
 def test_recent_filter_fallback():
