@@ -1,63 +1,56 @@
 # B站官号视频播放量自动监测系统 (bmon)
 
-全自动监测 Bilibili 账号（默认：**原神 / 崩坏星穹铁道 / 绝区零** 三个官方账号，均已核验）的全部视频播放量，
-按**每周/每月**自动生成柱状图可视化，并支持按多种条件筛选视频。账号、监测间隔、图表参数等全部可通过
-`config.yaml` 自定义，方便后续更换监测对象。
+全自动追踪 Bilibili 游戏官号（内置 **原神 / 崩坏：星穹铁道 / 绝区零 / 星布谷地** 四个官方账号，
+均可自定义增删）的全部投稿播放数据：每日定时采集入库、按日/周/月自动出图、
+在浏览器里查询任意时刻的历史数据、一键生成带 BGM 的数据报告视频——全程零登录态、纯本地运行。
 
-> 界面采用「纸感平设 × 静止系MAD」浅色设计系统：描边底字、mono 注记、
-> 平涂流行色块（珊瑚/奶油/雾紫/薄荷）、颗粒质感与适量动效；
-> 数据视频提供 `fluid`（流体几何·浅色平设，默认）与 `classic`（经典深色）两种风格。
+| 总览仪表盘 | 数据中心 |
+|---|---|
+| ![总览](docs/screenshots/readme_shot_overview_top.png) | ![数据中心](docs/screenshots/readme_shot_data_top.png) |
 
 ## 功能特性
 
-- **自动监测**：循环拉取账号投稿清单 + 逐视频采集播放/点赞/投币/收藏/弹幕等指标快照，间隔可自定义
-- **双通道投稿清单**：优先官方 `arc/search` 接口；被风控时自动切换“动态流”备选通道（游客可用），保障持续运行
-- **历史深度回填**：`fetch --full` 支持游标续读，分多次把账号全部历史投稿翻完；新视频自动补齐发布时间等元数据
-- **本地 Web GUI**：`python main.py gui` 一键启动浏览器控制台——总览仪表盘、视频筛选、播放趋势图、快照查询、**视频报告**（在线生成/预览/下载 MP4）、采集控制（一键抓取/重建图表/深度回填）全部可视化操作
-- **快照查询**：回看任意历史时刻的播放量，或对比任意时段的期初/期末/增量，支持筛选与 CSV 导出（CLI 与 Web 页双入口）
-- **自动可视化**：每轮采集后自动生成 日/周/月 四宫格柱状图 PNG（按周期分目录存档）+ 分区索引页 `index.html`；Top 榜标题完整折行、以颜色+图例区分游戏
-- **数据变化视频**：把监测期播放量变化渲染成 1080p 动效短片（七幕），CLI 与 Web GUI 均可生成
-- **多条件筛选**：按账号、标题关键词、发布日期区间、播放量区间、时长区间、分区、bvid 筛选，支持多种排序与 CSV 导出
-- **图表联动筛选**：`chart` 命令支持与 `list` 完全相同的筛选参数，只对符合条件的视频出图
-- **稳健运行**：采集跨进程互斥锁（计划任务/GUI调度/手动CLI 并存不冲突、不重复采集）、SQLite WAL 并发读写、自动数据库备份、日志轮转、单元测试与 CI
-- **安全设计**：游客身份（buvid 指纹 + ExClimbWuzhi 激活）、Chrome TLS 指纹伪装、官方 WBI 签名、限速抖动、风控冷却，默认零登录态
+### 数据采集（无人值守）
+- **双通道投稿清单**：官方 `arc/search` 接口优先，被风控时自动切换动态流通道兜底；
+  官方 WBI 签名 + 游客身份激活（ExClimbWuzhi），全程**零登录态**
+- **每日定时采集**：Web GUI 可配置"每日固定时间点"与"时段内按间隔"两种计划，
+  修改即时生效；错过自动补跑；另有 Windows 计划任务兜底（`BiliMonDailyFetch`）
+- **老视频翻红监测**：日常只采近 45 天活跃窗口，每 3 天自动对所有入库视频全量扫描一轮
+  （`full_sweep_days` 可调），配合深度回填游标续读，历史投稿目录完整补全
+- **失败自动重试**：某账号当轮被风控跳过时，10 分钟后自动仅重试该账号；
+  多套触发机制（计划任务/GUI 调度器/命令行）经跨进程互斥锁并存不冲突
+- **数据健壮性**：SQLite WAL 并发读写、每轮自动备份（保留最近 N 份）、日志轮转
 
-## 项目结构
+### 数据展示（纸感平设设计系统）
+- **本地 Web GUI**（七个页面，仅监听 127.0.0.1）：
+  总览仪表盘 / 视频数据筛选 / 播放趋势对比 / 快照查询 / **数据中心** / **视频报告** / 运行控制
+- **数据中心**：采集轮次与每日分布、账号与来源构成、缺口警示、
+  按日/周/月的时段增量分析、发布时间习惯、人工撰写的分析评论
+- **快照查询**：回看任意历史时刻的播放量，或对比任意时段的期初/期末/增量，支持筛选与 CSV 导出
+- **自动图表**：每轮采集后自动重建 日/周/月 四宫格仪表盘（按周期分目录归档），
+  未采集到的当日数据自动插值补形（仅展示不入库）
+- **多条件筛选**：账号、标题关键词、发布日期区间、播放量/时长区间、分区、bvid，
+  多种排序 + CSV 导出；CLI 与 Web 共用同一套筛选语义
 
-```
-bilibili-monitor/
-├── main.py            # 命令行入口 (fetch/run/chart/list/snapshot/gui …)
-├── config.yaml        # 个人配置 (首次复制 config.example.yaml 或 init 生成, 不入库)
-├── run.bat            # 双击即持续运行 (Windows)
-├── requirements.txt
-├── bmon/
-│   ├── api.py         # B站API客户端: WBI签名/双通道/身份激活/限速退避
-│   ├── storage.py     # SQLite 存储 (账号/视频/快照/游标, WAL并发)
-│   ├── monitor.py     # 采集调度: 单轮 fetch 与持续循环 run (跨进程互斥)
-│   ├── filters.py     # 多条件筛选与表格/CSV输出
-│   ├── charts.py      # 日/周/月柱状图 + 分区索引页
-│   ├── webui.py       # 本地 Web GUI (Flask, 仅监听 127.0.0.1)
-│   ├── scheduler.py   # 定时采集调度 (Web GUI 可配置, 实时生效, 支持错过补跑)
-│   ├── video.py       # 数据变化可视化视频 (matplotlib+ffmpeg)
-│   ├── lock.py        # 跨进程采集互斥锁
-│   ├── backup.py      # 数据库自动备份
-│   ├── config.py      # 配置加载与默认模板
-│   └── util.py
-├── templates/         # Web GUI 页面模板 (总览/视频/趋势/快照/视频报告/控制)
-├── static/            # Web GUI 样式与 echarts
-├── tests/             # 单元测试 (pytest, 无网络依赖)
-├── .github/workflows/ # CI: 编译检查 + 单元测试
-├── docs/              # 进度报告与方案文档
-├── data/
-│   ├── monitor.db     # SQLite 数据库
-│   ├── backup/        # 自动备份 (保留最近N份, backup_keep 配置)
-│   ├── monitor.log    # 运行日志 (自动轮转 2MB×3)
-│   └── state.json     # 最近一轮运行状态
-├── output/charts/     # 自动图表 (daily/ weekly/ monthly/ 分目录 + index.html)
-└── output/videos/     # 生成的数据报告 MP4
-```
+### 数据视频（1080p MP4）
+- **两种视觉风格**：`fluid` 流体几何平设（默认，浅色纸感 + 描边底字 + 平涂色块 +
+  环形文字 + 辉光曲线）与 `classic` 经典深色版
+- **八幕结构**：片头 → 总览(数字滚动/分游戏/时间轴) → 播放走势 → 净增量·视频 →
+  **净增量·近期视频**(过滤老视频，不足自动回溯) → 播放量竞跑 → 片尾
+- **折线扫描先快后慢缓动**，右侧标签跟随折线端点、数值连续跳字
+- **BGM 踩点合成**：把音频丢进 `bgm/` 文件夹即可在 GUI 下拉选择——每首 BGM
+  自动分析节拍并缓存标记（免重算），各幕边界吸附最近节拍、视频总时长跟随 BGM、
+  渲染后自动合成音轨（末端淡出）
+- **GUI 折叠面板逐幕调参**：每幕时长、Top N、线宽、标签折行宽、纵轴缓冲、
+  截断阈值、条形高度、片头文案、动画推进占比……留空即用默认
 
-![Web GUI 总览](docs/screenshots/webui_overview.png)
+![视频报告页](docs/screenshots/readme_shot_video_top.png)
+
+### 运行控制（Web GUI 内）
+一键立即采集 / 重建图表 / 深度回填历史；实时运行日志；
+定时采集计划表单；账号对比多选；BGM 选择。
+
+![运行控制](docs/screenshots/readme_shot_control_top.png)
 
 ## 快速开始
 
@@ -66,119 +59,15 @@ cd bilibili-monitor
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 
-# 首次使用: 复制配置模板 (或用 init 生成默认配置)
-copy config.example.yaml config.yaml
+copy config.example.yaml config.yaml          # 首次使用复制配置模板
 
-.venv\Scripts\python main.py accounts    # 联网核验配置中的账号
-.venv\Scripts\python main.py fetch       # 执行一轮采集(自动发现近期投稿)
-.venv\Scripts\python main.py gui         # 打开本地 Web GUI (推荐, 采集/查看全可视化)
-.venv\Scripts\python main.py run         # 或: 持续自动监测(间隔见配置, Ctrl+C 停止)
+.venv\Scripts\python main.py accounts         # 联网核验配置中的账号
+.venv\Scripts\python main.py fetch            # 执行一轮采集
+.venv\Scripts\python main.py gui              # 打开本地 Web GUI (推荐)
 ```
 
-或者 Windows 下直接双击 `run.bat` 持续运行；
-**双击 `open_gui.bat` 一键打开 Web GUI**（含定时采集调度，关窗即停）。
-
-查看图表：用浏览器打开 `output/charts/index.html`（默认每 5 分钟自动刷新），
-或运行 `python main.py gui` 在 Web GUI 总览页直接查看。
-
-## 本地 Web GUI
-
-```bash
-python main.py gui                # 默认 http://127.0.0.1:8322 并自动打开浏览器
-python main.py gui --port 9000 --no-browser
-```
-
-仅监听本机回环地址，数据不出本机，无需鉴权。五个页面：
-
-| 页面 | 功能 |
-|---|---|
-| 总览 | 视频数/累计播放/增量统计卡片、账号概况、自动图表（按 日/周/月 分区展示） |
-| 视频数据 | 与 `list` 同套筛选条件 + 分页 + CSV 导出 |
-| 播放趋势 | 任选 1-2 个视频，ECharts 播放量/点赞趋势曲线对比 |
-| 快照查询 | 任意时刻/时段的历史播放量，见下节 |
-| 视频报告 | 在线生成数据变化 MP4（全部历史/最近N天/自定义时段 + 帧率），历史视频内嵌预览与下载 |
-| 运行控制 | 一键立即采集/重建图表/深度回填历史，实时查看运行日志 |
-| 定时采集计划 | 两种方式各自勾选：每日时间点(可多个) / 时段内按间隔，保存立即生效 |
-
-![Web GUI 视频筛选](docs/screenshots/webui_videos.png)
-
-## 快照查询（任意时刻/时段的历史播放量）
-
-快照从开始监测起逐轮积累，可回看历史上任意时刻的数据：
-
-```bash
-# 某时刻各视频的播放量
-python main.py snapshot --at "2026-08-19 21:00"
-
-# 某时段的期初/期末/增量对比, 支持 list 全部筛选参数与 CSV 导出
-python main.py snapshot --from "2026-08-18 00:00" --to "2026-08-20 21:00" --account 绝区零 --csv delta.csv
-```
-
-Web GUI 的「快照查询」页提供同样的能力（时刻/时段切换、筛选、排序、CSV 导出）。
-
-## 定时采集（Web GUI 可配置）
-
-打开 Web GUI 的「运行控制」页，在"定时采集计划"卡片中设置，两种方式各自勾选启用：
-
-- **方式一 · 每日固定时间点**：如 `08:30, 21:30`（可多个，英文逗号隔开）
-- **方式二 · 时段内按间隔**：每 N 分钟一次，限定在指定起止时段内
-
-保存后立即生效（计划存于 `data/schedule.json`，调度循环实时重读）。
-GUI 进程运行期间自动按计划采集；若需不开 GUI 也调度，
-单独运行 `python main.py scheduler` 即可（读同一份计划）。
-
-## 数据变化视频（1080p）
-
-```bash
-python main.py video                    # 流体几何风(默认), 全部快照历史
-python main.py video --days 7           # 仅最近 7 天
-python main.py video --from 2026-08-16 --to 2026-08-20
-python main.py video --style classic    # 经典深色版(旧风格, 保留可用)
-```
-
-两种视觉风格：
-- **fluid（默认）**：流体几何 × 平面设计浅色版——纸感底色、超大描边底字、平涂色块、
-  环形文字、辉光曲线、圆角条形竞跑；输出 `output/videos/report_fluid_*.mp4`
-- **classic**：初代深色版，`--style classic` 或配置 `video.style` 切换
-
-场景：片头 → 总览数字滚动 → Top8 播放趋势曲线生长 →
-净增量走势(视频/分游戏) → 播放量竞跑 → 片尾（1920×1080 / 30fps / H.264，
-编码器由 imageio-ffmpeg 自带，无需安装 ffmpeg）。
-也可以在 Web GUI 的「视频报告」页直接生成并在线预览/下载。
-
-## 每日定时自动采集（已配置）
-
-系统已注册 Windows 计划任务 **`BiliMonDailyFetch`**：**每天 21:30** 自动执行一轮采集
-（`daily_fetch.bat` → `main.py fetch`：增量拉取三账号投稿 + 活跃窗口指标快照 + 自动重建图表），
-并已开启"错过补跑"（如 21:30 关机，登录后自动补执行）与电池模式可运行。
-输出日志：`data/monitor.log` 与 `data/scheduled.log`。
-
-管理命令（Git Bash 需加 `MSYS_NO_PATHCONV=1` 前缀，PowerShell/CMD 直接可用）：
-
-```bash
-schtasks /Query /TN BiliMonDailyFetch /V /FO LIST      # 查看任务与下次运行时间
-schtasks /Run    /TN BiliMonDailyFetch                 # 立即手动执行一次
-schtasks /Change /TN BiliMonDailyFetch /ST 09:00       # 改为每天 09:00
-schtasks /Delete /TN BiliMonDailyFetch /F              # 删除定时任务
-```
-
-注意：该任务以当前用户"登录时运行"方式注册（无需管理员权限）；若需关机时段也执行，
-可在任务计划程序中勾选"不管用户是否登录都要运行"（需输入密码）。
-想要更高频次的持续监测（如每小时），随时运行 `run.bat` 或 `python main.py run`，
-间隔由 `config.yaml` 的 `interval_minutes` 控制。
-
-**多套触发机制可安全并存**：采集入口有跨进程互斥锁（`data/fetch.lock`）——
-Windows 计划任务、GUI 内置调度器、`main.py scheduler`、手动 CLI 同时触发时，
-同一时刻只有一轮采集会真正执行，其余立即跳过并记录日志，不会重复采集或互踩。
-GUI 调度器还支持"错过补跑"（当天时间点已过但尚未采集时，进程随时启动都会补触发；隔夜缺失由
-Windows 计划任务的"错过补跑"兜底，补跑快照会记入实际执行时刻），
-并以 `state.json` 感知所有路径的最近采集时间。
-
-**数据自动备份**：每轮采集有新数据时会自动备份到 `data/backup/`（默认保留最近 5 份，
-`storage.backup_keep` 可调，0=关闭）；也可手动执行 `python main.py backup`。
-
-**补充完整历史（可选）**：首轮采集会拿到最近的投稿；如需回填更早的历史，多次执行
-`python main.py fetch --full`（每次自动从上次游标继续，直到日志提示"已翻完全部历史"）。
+Windows 下双击 `open_gui.bat` 一键打开 Web GUI（含定时调度，关窗即停），
+或 `run.bat` 进入持续监测循环；每日定时也可只依赖 Windows 计划任务（见下文）。
 
 ## 命令一览
 
@@ -187,133 +76,170 @@ Windows 计划任务的"错过补跑"兜底，补跑快照会记入实际执行�
 | `init` | 生成默认配置文件 |
 | `find --keyword 名称` | 联网搜索B站用户，查询 mid（添加账号用） |
 | `accounts` | 核验配置中的账号（昵称/粉丝数/库内视频数） |
-| `fetch [--full]` | 执行一轮采集；`--full` 深度回填历史（游标续读） |
-| `run [--interval-minutes 30]` | 持续监测循环；可临时覆盖间隔；`--max-cycles n` 调试用 |
-| `chart` | 手动生成图表（见下） |
-| `list` | 按条件筛选视频（见下） |
-| `snapshot` | 查询任意时刻/时段的历史播放量快照（见上节） |
-| `gui` | 启动本地 Web GUI（`--port` / `--no-browser`） |
-| `scheduler` | 常驻定时采集调度（计划同 Web GUI 配置） |
-| `video` | 生成指定时期数据变化可视化视频（`--days` / `--from --to`） |
-| `backup` | 手动备份数据库到 `data/backup/`（`--keep N` 保留份数） |
+| `fetch [--full] [--only-mid MID]` | 执行一轮采集；`--full` 深度回填历史；`--only-mid` 仅采指定账号 |
+| `run [--interval-minutes N]` | 持续自动监测循环 |
+| `chart [--period daily/weekly/monthly/all]` | 手动生成图表（支持筛选参数联动） |
+| `list` | 按条件筛选视频（支持 CSV 导出） |
+| `snapshot --at 时刻 / --from --to` | 查询任意时刻/时段的播放量快照 |
+| `backup [--keep N]` | 手动备份数据库 |
+| `gui [--port] [--no-browser]` | 启动本地 Web GUI |
+| `scheduler` | 常驻定时采集调度（不开 GUI 也能调度） |
+| `video [--days N / --from --to] [--style fluid/classic] [--bgm 文件] [--mids 列表]` | 生成数据报告视频 |
 | `state` | 查看最近一轮运行状态 |
 
-### 图表生成
+## 本地 Web GUI
 
 ```bash
-python main.py chart --period weekly --type dashboard   # 周报仪表盘(默认 both+dashboard)
-python main.py chart --period daily --type dashboard    # 日报仪表盘(最近12天)
-python main.py chart --period all                       # 日+周+月全部重建
-python main.py chart --period monthly --type gained     # 月度播放增量柱状图
-python main.py chart --period weekly --type top         # 近N周发布视频累计播放Top
-python main.py chart --account 原神 --keyword PV        # 只对筛选后的视频出图
+python main.py gui                # 默认 http://127.0.0.1:8322 并自动打开浏览器
+python main.py gui --port 9000 --no-browser
 ```
 
-- `--period`: `daily` / `weekly` / `monthly` / `both`(周+月) / `all`(日+周+月)
-- `--type`: `dashboard`(四宫格: 每期发布数 / 每期播放增量 / 累计播放Top / 本期增长Top)
-  `published` / `gained` / `top` 单图
-- `--periods-back N`: 展示最近 N 个周期（默认取配置 12）
+| 页面 | 功能 |
+|---|---|
+| 总览 | 视频/播放/增量统计卡、账号概况、自动图表（日/周/月分区） |
+| 视频数据 | 全部筛选条件 + 分页 + CSV 导出 |
+| 播放趋势 | 任选 1-2 个视频，播放量/点赞趋势曲线对比 |
+| 快照查询 | 指定时刻 / 时段对比两种模式，任意筛选组合 |
+| 数据中心 | 采集总览(轮次/分布/缺口警示) + 日/周/月数据分析 + 分析评论 |
+| 视频报告 | 在线生成数据视频(风格/时段/帧率/逐幕参数折叠面板/对比账号/BGM) + 历史预览下载 |
+| 运行控制 | 一键采集/重建图表/深度回填，实时日志，定时采集计划表单 |
 
-### 视频筛选
+![视频数据页](docs/screenshots/readme_shot_videos_top.png)
+
+## 快照查询（任意时刻/时段的历史播放量）
 
 ```bash
-# 播放量最高的前20个视频
-python main.py list --sort views --limit 20
-
-# 原神账号标题含"PV"的视频
-python main.py list --account 原神 --keyword PV
-
-# 今年以来播放破千万、时长超过5分钟、按增长排序并导出CSV
-python main.py list --since 2026-01-01 --min-views 10000000 --min-seconds 300 --sort growth --csv top.csv
-
-# 多账号 / 指定bvid / 分区 / 日期区间
-python main.py list --account 原神,绝区零
-python main.py list --since 2026-06-01 --until 2026-08-01 --sort pubdate
-python main.py list --bvid BV1sxui6eEGH
+python main.py snapshot --at "2026-09-10 21:00"                    # 某时刻全部视频的播放量
+python main.py snapshot --from "2026-09-05" --to "2026-09-11" --csv out.csv
 ```
 
-筛选参数（`list` 与 `chart` 通用）：`--account`(可多次/逗号分隔)、`--keyword`、`--since/--until`、
-`--min-views/--max-views`、`--min-seconds/--max-seconds`、`--tname`、`--bvid`、
-`--sort pubdate|views|likes|growth|duration`、`--asc`、`--limit`。
+Web「快照查询」页提供同样能力（指定时刻 / 时段对比两种模式 + 全部筛选）。
+快照随每日采集积累，是折线趋势、净增量动画与竞跑的数据底座。
 
-其中 `growth`(增长) = 最新快照播放 − 首次快照播放，即开始监测以来的播放增量（需运行至少两轮）。
+## 数据变化视频（1080p MP4）
+
+```bash
+python main.py video                              # 流体几何风(默认), 全部快照历史
+python main.py video --days 7 --style classic     # 经典深色版
+python main.py video --mids 1340190821,1636034895 # 仅基于指定账号(账号对比)
+python main.py video --bgm bgm/我的BGM.mp3        # 合成 BGM 并踩点
+python main.py video --scene bars=12 --sweep-frac 0.6   # 逐幕调参
+```
+
+- **fluid**（默认）：纸感平设浅色——描边底字、平涂色块、环形文字、辉光曲线、
+  圆角条形竞跑；折线扫描先快后慢缓动，右侧标签跟随折线端点、数值连续跳字
+- **classic**：初代深色版，`--style classic` 或配置 `video.style` 切换
+- 时间轴**按日期均匀分格**（每天一格），末端=末时间，折线从起点画起
+  （净增量幕首快照前贴轴为零）；净增量·近期幕仅收录发布于数据跨度×2 内的视频
+- GUI「视频报告」页提供全部参数的折叠面板（每幕时长/Top N/线宽/文案/BGM/对比账号），
+  生成后在线预览与下载
+
+## 定时采集
+
+打开 Web GUI「运行控制」页配置（两种方式独立启用）：
+
+- **方式一 · 每日固定时间点**：如 `08:30, 21:30`（可多个）
+- **方式二 · 时段内按间隔**：每 N 分钟一次，限定起止时段
+
+保存即时生效（存于 `data/schedule.json`，调度循环实时重读）；
+GUI 关闭时可单独运行 `python main.py scheduler` 常驻调度。
+另有 Windows 计划任务 **`BiliMonDailyFetch`**（每天 21:30，开启错过补跑）兜底。
+
+采集入口有**跨进程互斥锁**：上述机制同时触发时同一时刻只跑一轮，不会重复。
+某账号当轮被风控跳过时，10 分钟后自动**仅重试该账号**。
 
 ## 自定义配置 (config.yaml)
 
-### 更换/添加监测账号
+### 账号
 
 ```yaml
 accounts:
   - mid: 401742377        # 原神
     name: 原神
     enabled: true
-  - mid: 1340190821       # 崩坏星穹铁道
-    name: 崩坏星穹铁道
+  - mid: 1340190821       # 崩坏：星穹铁道
+    name: 崩坏：星穹铁道
     enabled: true
-  - mid: 1636034895       # 绝区零
-    name: 绝区零
-    enabled: true
-  # 新增任意账号: 用 `python main.py find --keyword 昵称` 查 mid 后照抄一段即可
-  # 暂停某账号: enabled: false
-  # 仅监测指定视频(手动模式, 不再拉取全部投稿):
-  # - mid: 123456
-  #   name: 某账号
-  #   bvids: ["BV1xx411c7mD", "BV1ab411c7ba"]
+  # 星布谷地 / 任意其他账号: 用 `python main.py find --keyword 昵称` 查 mid 后照抄一段
+  # enabled: false 暂停账号; bvids: [...] 可只监测指定视频
 ```
 
-### 监测参数
+### 关键参数
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `interval_minutes` | 60 | 监测间隔（分钟，支持小数） |
-| `request_interval_seconds` | 2.5 | 相邻请求最小间隔（限速，建议 ≥2） |
-| `active_days` | 45 | 仅对最近 N 天发布的视频逐周期采集指标（0=全部，请求量大） |
-| `stats_mode` | full | `basic`=仅列表接口；`full`=逐视频详情（含点赞/投币等） |
-| `listing_mode` | auto | 投稿清单通道：`auto`=arc优先/风控自动切动态流；可强制 `arc`/`feed` |
-| `use_system_proxy` | false | 是否走系统代理（**默认直连**；数据中心代理出口 IP 会被B站风控拦截） |
-| `feed_page_interval_seconds` | 5 | 动态流通道翻页间隔（该接口对频率敏感，建议 ≥5） |
-| `meta_backfill_limit` | 300 | 每轮为新发现视频回填详情的最大数量（0=不限） |
-| `backfill_pages` | 0 | 首次抓取最多翻页数（每页50条，0=不限，仅 arc 通道） |
-| `cookie` | 空 | 可粘贴浏览器 Cookie（含 SESSDATA）提升数据权限；留空=游客模式 |
+| `active_days` | 45 | 活跃窗口：仅对最近 N 天发布的视频逐周期采集 |
+| `full_sweep_days` | 3 | 每 N 天对所有入库视频全量采集一轮（老视频翻红监测，0=关闭） |
+| `listing_mode` | auto | 投稿清单通道：arc 优先 / 风控自动切动态流 |
+| `use_system_proxy` | false | 是否走系统代理（**默认直连**，代理出口 IP 会被风控） |
+| `interpolate` (charts) | true | 图表对未采集到的当日数据插值补形（仅展示不入库） |
+| `backup_keep` (storage) | 5 | 自动备份保留份数 |
+| `cookie` | 空 | 浏览器 Cookie（含 SESSDATA），留空=游客模式 |
 
-### 图表参数
+完整参数见 `config.example.yaml` 内注释。
 
-`auto`(自动出图)、`periods`(自动生成哪些周期)、`periods_back`(展示周期数)、`top_n`、
-`output_dir`、`font`(中文字体，留空自动探测微软雅黑)、`auto_refresh_seconds`(索引页自动刷新)。
+## 图表
 
-## 反爬与安全设计说明
+```bash
+python main.py chart --period all --type dashboard   # 日+周+月仪表盘全部重建
+python main.py chart --period weekly --type gained   # 单图: 每周播放增量
+python main.py chart --account 原神 --keyword PV     # 只对筛选后的视频出图
+```
 
-本系统仅采集**公开数据**、以**个人研究**为目的，通过以下设计将对站方的干扰与自身风险降到最低：
+- 仪表盘四宫格：每期新发布视频数 / 每期播放增量 / 累计播放 Top / 本期增长 Top
+- 未采集到的当日数据由**插值估算**补形（标题会注明"含插值估算"，仅展示不入库）
+- 输出按周期归档：`output/charts/{daily,weekly,monthly}/`，
+  根目录 `index.html` 分区汇总（自动刷新）
 
-1. **零登录态**：默认使用游客身份，通过官方指纹接口获取 buvid，并按官方 web 端流程完成
-   ExClimbWuzhi 设备指纹上报激活，全程不涉及任何账号
-2. **浏览器级伪装**：curl_cffi 模拟 Chrome 的 TLS/JA3 指纹 + 真实浏览器请求头，
-   投稿列表接口按官方 WBI 算法签名并携带 web 端设备参数
-3. **双通道容错**：arc/search 被风控时自动切换动态流通道并翻页限速（5秒+/页），
-   触发风控先冷却再重建游客身份重试，绝不硬刷
-4. **限速 + 抖动**：请求间隔 ≥2.5 秒并附加 ±15% 随机抖动；动态流接口单独更长间隔
-5. **增量优化**：常规轮次只翻到已入库的旧视频即停止；深度回填支持游标断点续读
-6. **直连优先**：默认绕过系统代理——数据中心/海外代理出口 IP 会被B站风控重点拦截
-   （本机测试验证：代理出口被 412/-352 拦截，直连家宽正常）
-7. **合规建议**：保持 `interval_minutes` ≥ 30；数据版权归 B 站与相应 UP 主，请勿商用或批量分发
+## 反爬与安全设计
 
-若个别视频播放量显示为 `-`（如充电专属视频对游客隐藏播放量），属正常现象，可配置 `cookie` 解决。
+1. **零登录态**：游客身份（官方指纹接口 + ExClimbWuzhi 设备激活），不涉及任何账号
+2. **浏览器级伪装**：curl_cffi 模拟 Chrome TLS 指纹 + 官方 WBI 签名 + web 端设备参数
+3. **双通道容错**：arc/search 被风控自动切动态流；限速 ≥2.5s/请求 + 随机抖动，
+   风控先冷却重建身份再重试，绝不硬刷
+4. **直连优先**：默认绕过系统代理（实测数据中心/海外代理出口 IP 会被B站重点拦截）
+5. **合规建议**：保持低频采集；数据版权归 B 站与相应 UP 主，请勿商用或批量分发
+
+## 项目结构
+
+```
+bilibili-monitor/
+├── main.py               # CLI 入口 (fetch/run/chart/list/snapshot/video/gui/scheduler/backup…)
+├── config.yaml           # 个人配置 (首次复制 config.example.yaml)
+├── run.bat / open_gui.bat / daily_fetch.bat
+├── bmon/
+│   ├── api.py            # B站API客户端 (WBI签名/双通道/游客激活/限速退避)
+│   ├── storage.py        # SQLite (WAL/账号/视频/快照/游标/采集统计)
+│   ├── monitor.py        # 单轮采集与持续循环 (互斥锁/全量扫描/失败记录)
+│   ├── scheduler.py      # 定时调度 (双模式/补跑/失败重试)
+│   ├── filters.py        # 多条件筛选与表格/CSV
+│   ├── charts.py         # 日/周/月四宫格仪表盘 (纸感平设)
+│   ├── interp.py         # 展示用插值估算
+│   ├── video.py          # 数据视频·经典深色版
+│   ├── video_fluid.py    # 数据视频·流体几何平设版
+│   ├── bgm.py            # BGM 节拍分析与场景对齐
+│   ├── webui.py          # 本地 Web GUI (Flask)
+│   ├── lock.py / backup.py / config.py / util.py
+├── templates/ + static/  # Web GUI 页面与样式 (纸感平设设计系统)
+├── tests/                # 单元测试 (pytest, 20 例)
+├── .github/workflows/    # CI (编译检查 + 测试)
+├── bgm/                  # BGM 音频库 (丢入即可在 GUI 选择)
+├── data/                 # monitor.db / 备份 / 日志 / 计划 / 调度状态
+├── output/charts/        # 自动图表 (daily/weekly/monthly + index.html)
+├── output/videos/        # 生成的数据报告 MP4
+└── docs/                 # 进度报告 / 部署与视频方案 / 截图
+```
 
 ## 常见问题
 
-- **首轮 `fetch` 要多久？** 动态流通道下三个官号约 50-60 分钟（受限速保护与B站对游客的
-  连续翻页限制，单次约能翻 50-60 页，覆盖最近数月的投稿）；arc 通道可用时只需几分钟。
-- **怎么补全更早的历史投稿？** 多执行几次 `python main.py fetch --full`，每次从上次游标
-  继续向历史翻页，直到日志显示"已翻完全部历史"。历史播放量只能从开始监测时记录。
-- **图表"播放增量/增长"为空？** 增量按快照差值计算，需系统运行跨越至少两个采集周期；
-  之后每个周期都会自动积累。
-- **图表存放在哪？** `output/charts/` 下按周期分目录：`daily/`、`weekly/`、`monthly/`，
-  根目录的 `index.html` 分区汇总展示；旧版平铺的图会在下次生成时自动迁移归类。
-- **日志出现 412/-352 风控？** 属预期行为：系统会自动冷却、重建身份或切换通道；若持续
-  出现，检查是否走了代理（配置 `use_system_proxy: false` 直连）或调大请求间隔。
-- **想开机自动运行？** Windows 任务计划程序 → 创建基本任务 → 触发器"登录时" →
-  操作启动 `run.bat`（或 `pythonw main.py run` 后台运行，日志见 `data/monitor.log`）。
-- **数据存在哪？** 全部本地：`data/monitor.db`（SQLite，可用任意工具查询 `videos` / `snapshots` 表）。
+- **首轮采集要多久？** 动态流通道约 10-15 分钟覆盖近期投稿（B站对游客单次翻页有限制）；
+  更早历史用 `fetch --full` 游标续读，多次执行直至"已翻完全部历史"
+- **某天数据缺了？** 多为电脑在采集时刻关机/睡眠。数据中心页会列出缺口日期并警示；
+  图表对这些时段插值补形；Windows 计划任务与调度器补跑机制会尽量自动挽回
+- **老视频会监测吗？** 会——每 3 天全量扫描一轮所有入库视频（`full_sweep_days`），
+  更早历史用 `fetch --full` 持续回填
+- **视频想要不同风格/节奏？** 「视频报告」页逐幕折叠面板调参，或换 BGM（分镜自动踩点）
+- **数据存在哪？** 全部本地：`data/monitor.db`（SQLite），自动备份在 `data/backup/`
 
 ## 免责声明
 
