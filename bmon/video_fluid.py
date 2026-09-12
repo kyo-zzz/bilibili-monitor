@@ -21,8 +21,8 @@ from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 
 from .util import fmt_num
-from .video import (TSFMT, _bar_axis, _interp_value,
-                    _side_timeline, _time_axis, _wrap2, collect, setup_font)
+from .video import (TSFMT, _bar_axis,
+                    _wrap2, collect, setup_font)
 
 log = logging.getLogger("bmon.video_fluid")
 
@@ -281,24 +281,25 @@ def _sc_overview(fig, i, n, data):
             ax.text(cx, y + 0.028, cv, fontsize=15.5, color=cc, ha="center",
                     fontweight="bold", alpha=a, zorder=4)
         _outline(ax, 0.905, y + 0.085, f"0{k+1}", 22, a, ha="right")
-    # 底部时间轴: 两端=起末时间, 内部逐日刻度避让(标签向内对齐不越出轴线)
-    t0, t1 = _time_axis(data)
-    span = (t1 - t0).total_seconds()
+    # 底部时间轴: 每天一格, 末端=末时间所在日
+    d0, nd = _time_axis(data)
+    span = max(1, nd - 1)
     ty = 0.095
-    ticks, labeled = _day_cells(t0, t1)
+    pos, labeled = _day_grid(nd)
     ax.plot([0.07, 0.93], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
-    for day in ticks:
-        gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
+    for i in pos:
+        gx = 0.07 + 0.86 * i / span
         ax.plot([gx, gx], [ty, ty + 0.009], color=EDGE, lw=1.1, alpha=a, zorder=3)
-    for day in labeled:
-        gx = 0.07 + 0.86 * (day - t0).total_seconds() / span
-        ax.text(gx, ty - 0.028, day.strftime("%m-%d"), fontsize=9,
-                color=DIM, ha=_edge_ha(gx, 0.07, 0.93), alpha=a, zorder=3)
+    for i in labeled:
+        gx = 0.07 + 0.86 * i / span
+        ax.text(gx, ty - 0.028, (d0 + timedelta(days=i)).strftime("%m-%d"),
+                fontsize=9, color=DIM, ha=_edge_ha(gx, 0.07, 0.93), alpha=a,
+                zorder=3)
     px = 0.07 + 0.86 * p
     ax.plot([0.07, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
     ax.plot([px], [ty], "o", color=CYAN, ms=14, alpha=a * 0.2, zorder=4)
-    cur = min(t0 + (t1 - t0) * p, t1 - timedelta(seconds=1))
+    cur = d0 + timedelta(days=round((nd - 1) * p))
     ax.text(px, ty + 0.022, cur.strftime("%m-%d"),
             fontsize=9.5, color=CYAN, ha="center",
             fontweight="bold", alpha=a, zorder=5)
@@ -309,36 +310,55 @@ def _period(data):
 
 
 def _time_axis(data):
-    """轴域: 起点=起始日 00:00(保证内部日期格均匀), 末端=末时间本身
-    (右边缘就是最后一个数据时刻, 其后不再留空)."""
+    """日索引坐标系: 返回 (起始日 date, 日格数 nd).
+
+    轴按"每天一格"均匀划分: 位置 x ∈ [0, nd-1], 整数位 = 各日期,
+    末端(09-11)就在 x = nd-1 = 轴最右端, 其后没有任何空白.
+    """
     t0 = datetime.strptime(data["ts_from"], TSFMT)
     t1 = datetime.strptime(data["ts_to"], TSFMT)
-    if t1 <= t0:
-        t1 = t0 + timedelta(days=1)
-    d0 = t0.replace(hour=0, minute=0, second=0, microsecond=0)
-    return d0, t1
+    d0 = min(t0.date(), t1.date())
+    nd = (t1.date() - d0).days + 1
+    return d0, max(2, nd)
 
 
-def _day_cells(t0d, t1, max_labels=15):
-    """返回 (全部刻度, 需标注刻度). 轴域 [起始日00:00, 末时间]:
+def _dayidx(t, d0):
+    """datetime -> 日索引(整数)."""
+    return (t.date() - d0).days
 
-    刻度=起点 + 每个自然日0点 + 末端(=末时间); 末时间所在日的 0 点格线删去
-    (09-10 直连末端一格, 不多出半格); 标注=起点日期 + 各日0点日期, 与末时间
-    同日的 0 点不标注(该日期由末端承担, 保证最右侧就是末时间且其后无空白).
-    长跨度按 k 格均匀抽稀.
-    """
-    ticks = [t0d]
-    m = t0d + timedelta(days=1)
-    while m < t1:
-        if m.date() != t1.date():                 # 末日的0点格线删去
-            ticks.append(m)
-        m += timedelta(days=1)
-    ticks.append(t1)                              # 末端=末时间
-    n_cells = max(1, int((t1 - t0d).total_seconds() // 86400))
-    k = max(1, -(-n_cells // max(4, max_labels)))  # ceil
-    mids = ticks[1:-1]
-    labeled = [t0d] + [t for i, t in enumerate(mids, 1) if i % k == 0] + [t1]
-    return ticks, labeled
+
+def _attach_pdx(items, d0):
+    """把快照序列转为日索引坐标 [(x, v)] 挂到 it["pdx"]; 同日多快照取后者."""
+    for it in items:
+        pdx = []
+        for t, v in it["pts"]:
+            x = _dayidx(t, d0)
+            if pdx and pdx[-1][0] == x:
+                pdx[-1] = (x, v)
+            else:
+                pdx.append((x, v))
+        it["pdx"] = pdx
+    return items
+
+
+def _interp_x(pts, x):
+    """日索引坐标线性插值(端外持有)."""
+    if not pts:
+        return None
+    if x <= pts[0][0]:
+        return pts[0][1]
+    for (xa, va), (xb, vb) in zip(pts, pts[1:]):
+        if x <= xb:
+            return va + (vb - va) * (x - xa) / ((xb - xa) or 1)
+    return pts[-1][1]
+
+
+def _day_grid(nd, max_labels=15):
+    """日索引刻度: 0..nd-1 全部为刻度; 标注按 k 格均匀抽稀(末端必标)."""
+    k = max(1, -(-nd // max(4, max_labels)))
+    pos = list(range(nd))
+    labeled = [i for i in pos if i % k == 0]
+    return pos, labeled
 
 
 def _edge_ha(gx, x_lo, x_hi, margin=0.035):
@@ -350,17 +370,18 @@ def _edge_ha(gx, x_lo, x_hi, margin=0.035):
     return "center"
 
 
-def _axis_days(ax, t0, t1, x0, x1, y0, a, y1):
-    span = (t1 - t0).total_seconds()
-    ticks, labeled = _day_cells(t0, t1)
+def _axis_days(ax, d0, nd, x0, x1, y0, a, y1):
+    span = max(1, nd - 1)
+    pos, labeled = _day_grid(nd)
     ax.plot([x0, x1], [y0, y0], color=EDGE, lw=1.3, alpha=a, zorder=3)
-    for day in ticks:
-        gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
+    for i in pos:
+        gx = x0 + (x1 - x0) * i / span
         ax.plot([gx, gx], [y0, y1], color=GRID, lw=0.9, alpha=a * 0.9, zorder=2)
-    for day in labeled:
-        gx = x0 + (x1 - x0) * (day - t0).total_seconds() / span
-        ax.text(gx, y0 - 0.030, day.strftime("%m-%d"), fontsize=10,
-                color=DIM, ha=_edge_ha(gx, x0, x1), alpha=a, zorder=3)
+    for i in labeled:
+        gx = x0 + (x1 - x0) * i / span
+        ax.text(gx, y0 - 0.030, (d0 + timedelta(days=i)).strftime("%m-%d"),
+                fontsize=10, color=DIM, ha=_edge_ha(gx, x0, x1), alpha=a,
+                zorder=3)
 
 
 def _glow_curve(ax, xs, ys, color, lw, a, z=4):
@@ -398,16 +419,18 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
         ax.text(0.5, 0.45, "本期暂无趋势数据", fontsize=19, color=DIM,
                 ha="center", alpha=a)
         return
-    t0, t1 = _time_axis(data)
+    d0, nd = _time_axis(data)
+    _attach_pdx(trend, d0)
     x0, x1, y0, y1 = 0.09, 0.70, 0.13, 0.80
+    span = max(1, nd - 1)
     _panel(ax, 0.065, 0.11, 0.655, 0.72, alpha=a)
     if kind == "view":
-        vmin = min(v for it in trend for _, v in it["pts"])
-        vmax = max(v for it in trend for _, v in it["pts"])
+        vmin = min(v for it in trend for _, v in it["pdx"])
+        vmax = max(v for it in trend for _, v in it["pdx"])
         lo = max(0, vmin - (vmax - vmin) * axis_pad)
         hi = vmax + (vmax - vmin) * 0.08 or 1
     else:
-        gmin = min(min(v for _, v in it["pts"]) - it["start"] for it in trend)
+        gmin = min(min(v for _, v in it["pdx"]) - it["start"] for it in trend)
         gmax = max(it["growth"] for it in trend) * 1.08 or 1
         if _o(data, sc, "zero_base", True):
             lo = 0
@@ -415,14 +438,14 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
             lo = max(0, gmin - (gmax - gmin) * axis_pad)
         hi = gmax
 
-    def tx(tt):
-        return x0 + (x1 - x0) * (tt - t0).total_seconds() / (t1 - t0).total_seconds()
+    def tx(x):
+        return x0 + (x1 - x0) * x / span
 
     def vy(v):
         v = max(0.0, v) if kind == "gain" else v
         return y0 + (y1 - y0) * (v - lo) / (hi - lo)
 
-    _axis_days(ax, t0, t1, x0, x1, y0, a, y1)
+    _axis_days(ax, d0, nd, x0, x1, y0, a, y1)
     for frac in ((0.0, 0.33, 0.66, 1.0) if kind == "view" else (0.33, 0.66, 1.0)):
         v = lo + (hi - lo) * frac
         ax.text(x0 - 0.012, vy(v), fmt_num(int(v)), fontsize=9.5, color=DIM,
@@ -432,29 +455,29 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
                     linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
     pad = data.get("_pads", {}).get(sc, max(6, int(n * 0.25)))
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
+    sweep = span * min(1.0, i / max(1, n - pad))     # 扫描位置(日索引)
     for it in trend:
-        f0 = it["pts"][0][0]
+        pdx = it["pdx"]
         xs, ys = [], []
         for k in range(121):
-            tt = t0 + (sweep - t0) * k / 120     # 折线一律从轴起点(09-04)开始
-            if tt < f0:
+            x = sweep * k / 120                      # 折线一律从轴起点(第一天)开始
+            if x < pdx[0][0]:
                 # 首个快照之前: 增长幕贴轴为零; 播放量幕平推首值
-                v = it["pts"][0][1] if kind == "view" else it["start"]
+                v = pdx[0][1] if kind == "view" else it["start"]
             else:
-                v = _interp_value(it["pts"], tt)
+                v = _interp_x(pdx, x)
             if kind == "gain":
                 v -= it["start"]
-            xs.append(tx(tt))
+            xs.append(tx(x))
             ys.append(vy(v))
         _glow_curve(ax, xs, ys, it["color"], line_w, a)
         if show_dots:
-            mp = [(tt, v) for tt, v in it["pts"] if tt <= sweep]
-            ax.plot([tx(tt) for tt, _ in mp],
+            mp = [(x, v) for x, v in pdx if x <= sweep]
+            ax.plot([tx(x) for x, _ in mp],
                     [vy(v - it["start"] if kind == "gain" else v) for _, v in mp],
                     "o", ms=5.5, color=it["color"], markerfacecolor=it["color"],
                     markeredgecolor=BG1, markeredgewidth=1.0, alpha=a, zorder=6)
-    if sweep < t1:
+    if sweep < span:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, linestyle=(0, (3, 4)),
                 alpha=a * 0.5, zorder=3)
@@ -464,10 +487,10 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
         sc, max(6, int(n * 0.25)))
     side = data.get(key)
     if side is None:
-        fn = (lambda it, tt: _interp_value(it["pts"], tt)) if kind == "view" \
-            else (lambda it, tt: _interp_value(it["pts"], tt) - it["start"])
-        side = data[key] = _side_timeline(trend, t0, t1, n, lo, hi, y0, y1, fn,
-                                          side_pad=pad)
+        fn = (lambda it, x: _interp_x(it["pdx"], x)) if kind == "view" \
+            else (lambda it, x: _interp_x(it["pdx"], x) - it["start"])
+        side = data[key] = _side_timeline_d(trend, span, n, lo, hi, y0, y1, fn,
+                                            side_pad=pad)
     fr = side[min(i, len(side) - 1)]
     for it in trend:
         sy = fr["ys"][it["bvid"]]
@@ -530,29 +553,89 @@ def _sc_gains_recent(fig, i, n, data):
         sub=sub, accent=GREEN)
 
 
+def _side_timeline_d(trend, span, n_frames, lo, hi, y0, y1, val_fn,
+                     side_pad=90, gap=None):
+    """右侧标签时间轴(日索引, 自下而上瀑布防叠印):
+    标签纵向位置跟随各自折线当前值, 互相间距>=gap, 贴底时向上堆叠不叠印;
+    帧间指数平滑; 同时返回各视频连续插值后的当前数值(跳字用)."""
+    n_lab = max(1, len(trend))
+    if gap is None:
+        gap = min(0.075, (y1 - y0 - 0.03) / n_lab)
+    floor = y0 + 0.01
+    ceil = y1 - 0.01
+    frames, ys = [], None
+    denom = max(1, span - side_pad)
+    for i in range(n_frames):
+        x = span * min(1.0, i / denom)
+        vals = {it["bvid"]: val_fn(it, x) for it in trend}
+        targets = {b: y0 + (y1 - y0) * (max(0.0, v) - lo) / ((hi - lo) or 1)
+                   for b, v in vals.items()}
+        adj, f = {}, floor
+        for b in sorted(vals, key=lambda b: vals[b]):
+            adj[b] = max(min(targets[b], ceil), f)
+            f = adj[b] + gap
+        f = ceil
+        for b in sorted(vals, key=lambda b: -vals[b]):
+            adj[b] = min(adj[b], f)
+            f = adj[b] - gap
+        if ys is None:
+            ys = dict(adj)
+        else:
+            for b in ys:
+                ys[b] += (adj[b] - ys[b]) * 0.3
+        frames.append({"vals": vals, "ys": dict(ys)})
+    return frames
+
+
 def _sc_gains_games(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
     _bg(ax, i / 10)
     _header(ax, i, n, "GAINS / GAMES", "净增量走势 · 分游戏",
             "三个游戏全部监测视频的合计净增量", _period(data), accent=PINK)
-    acc_gains = data["acc_gains"]
+    d0, nd = _time_axis(data)
+    span = max(1, nd - 1)
+    _attach_pdx(data.get("trend_all") or [], d0)
+    by_acc = {}
+    for it in data.get("trend_all") or []:
+        by_acc.setdefault(it["mid"], []).append(it)
+    acc_gains = []
+    for acc in data["accounts"]:
+        its = by_acc.get(acc["mid"]) or []
+        if not its:
+            continue
+        pts = []
+        for k in range(121):
+            x = span * k / 120
+            v = sum(max(0.0, _interp_x(it["pdx"], x) - it["start"])
+                    for it in its)
+            pts.append((x, v))
+        acc_gains.append({**acc, "pts": pts, "end": pts[-1][1]})
+    acc_gains.sort(key=lambda g: -g["end"])
     if not acc_gains:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=19, color=DIM,
                 ha="center", alpha=a)
         return
-    t0, t1 = _time_axis(data)
     x0, x1, y0, y1 = 0.09, 0.70, 0.13, 0.80
     _panel(ax, 0.065, 0.11, 0.655, 0.72, alpha=a)
     gmax = max(g["end"] for g in acc_gains) * 1.10 or 1
 
-    def tx(tt):
-        return x0 + (x1 - x0) * (tt - t0).total_seconds() / (t1 - t0).total_seconds()
+    def tx(x):
+        return x0 + (x1 - x0) * x / span
 
     def vy(v):
         return y0 + (y1 - y0) * max(0.0, v) / gmax
 
-    _axis_days(ax, t0, t1, x0, x1, y0, a, y1)
+    pos, labeled = _day_grid(nd)
+    ax.plot([x0, x1], [y0, y0], color=EDGE, lw=1.3, alpha=a, zorder=3)
+    for day in pos:
+        gx = tx(day)
+        ax.plot([gx, gx], [y0, y1], color=GRID, lw=0.9, alpha=a * 0.9, zorder=2)
+    for day in labeled:
+        gx = tx(day)
+        ax.text(gx, y0 - 0.030, (d0 + timedelta(days=day)).strftime("%m-%d"),
+                fontsize=10.5, color=DIM, ha=_edge_ha(gx, x0, x1), alpha=a,
+                zorder=3)
     for frac in (0.33, 0.66, 1.0):
         ax.text(x0 - 0.012, vy(gmax * frac), fmt_num(int(gmax * frac)),
                 fontsize=9.5, color=DIM, ha="right", va="center",
@@ -561,17 +644,17 @@ def _sc_gains_games(fig, i, n, data):
                 linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
     pad = data.get("_pads", {}).get("gains_games", max(6, int(n * 0.25)))
-    sweep = t0 + (t1 - t0) * min(1.0, i / max(1, n - pad))
+    sweep = span * min(1.0, i / max(1, n - pad))
     for g in acc_gains:
-        pts = [(tt, v) for tt, v in g["pts"] if tt <= sweep]
+        pts = [(x, v) for x, v in g["pts"] if x <= sweep]
         if not pts:
             continue
-        _glow_curve(ax, [tx(tt) for tt, _ in pts],
-                    [vy(v) for _, v in pts], g["color"], 3.2, a)
+        _glow_curve(ax, [tx(x) for x, _ in pts], [vy(v) for _, v in pts],
+                    g["color"], 3.2, a)
         ax.plot([tx(pts[-1][0])], [vy(pts[-1][1])], "o", color=g["color"],
                 ms=7.5, markeredgecolor=BG1, markeredgewidth=1.0, alpha=a,
                 zorder=6)
-    if sweep < t1:
+    if sweep < span:
         gx = tx(sweep)
         ax.plot([gx, gx], [y0, y1], color=DIM, lw=1, linestyle=(0, (3, 4)),
                 alpha=a * 0.5, zorder=3)
@@ -579,7 +662,7 @@ def _sc_gains_games(fig, i, n, data):
     p = _ease(i / max(1, n - 22))
     for k, g in enumerate(acc_gains[:3]):
         sy = 0.735 - k * 0.125
-        cur = next((v for tt, v in reversed(g["pts"]) if tt <= sweep), 0)
+        cur = next((v for x, v in reversed(g["pts"]) if x <= sweep), 0)
         _panel(ax, 0.725, sy - 0.048, 0.255, 0.096, alpha=a)
         ax.plot([0.748], [sy], "o", color=g["color"], ms=10, alpha=a, zorder=5)
         ax.plot([0.748], [sy], "o", color=g["color"], ms=20, alpha=a * 0.18,
@@ -611,7 +694,7 @@ def _sc_bars(fig, i, n, data):
         race = data["_race"] = _race_timeline_local(
             data, n, hold=max(4, int(n * 0.04)), hold_end=pad_b)
     fr = race[min(i, len(race) - 1)]
-    t0, t1 = _time_axis(data)
+    d0, nd = _time_axis(data)
     left, right = 0.30, 0.80
     top_y, bot_y = 0.80, 0.185
     step = (top_y - bot_y) / len(tops)
@@ -658,24 +741,25 @@ def _sc_bars(fig, i, n, data):
         ax.text(0.985, y, fmt_num(int(v)), fontsize=10.5, color=DIM,
                 va="center", ha="right", alpha=a, zorder=5)
 
-    # 底部日期轴 + 进度(两端=起末时间, 标签向内对齐不越出轴线)
-    span = (t1 - t0).total_seconds()
+    # 底部日期轴 + 进度(每天一格, 末端=末时间所在日, 标签向内对齐)
+    span = max(1, nd - 1)
     ty = 0.112
-    ticks, labeled = _day_cells(t0, t1)
+    pos, labeled = _day_grid(nd)
     ax.plot([left, right], [ty, ty], color=EDGE, lw=1.4, alpha=a, zorder=3)
-    for day in ticks:
-        gx = left + (right - left) * (day - t0).total_seconds() / span
+    for i in pos:
+        gx = left + (right - left) * i / span
         ax.plot([gx, gx], [ty, ty + 0.008], color=EDGE, lw=1.0, alpha=a,
                 zorder=3)
-    for day in labeled:
-        gx = left + (right - left) * (day - t0).total_seconds() / span
-        ax.text(gx, ty - 0.026, day.strftime("%m-%d"), fontsize=8.5,
-                color=DIM, ha=_edge_ha(gx, left, right), alpha=a, zorder=3)
-    px = left + (right - left) * (fr["t"] - t0).total_seconds() / span
+    for i in labeled:
+        gx = left + (right - left) * i / span
+        ax.text(gx, ty - 0.026, (d0 + timedelta(days=i)).strftime("%m-%d"),
+                fontsize=8.5, color=DIM, ha=_edge_ha(gx, left, right), alpha=a,
+                zorder=3)
+    px = left + (right - left) * fr["x"] / span
     ax.plot([left, px], [ty, ty], color=CYAN, lw=2.4, alpha=a, zorder=4)
     ax.plot([px], [ty], "o", color=CYAN, ms=6, alpha=a, zorder=5)
     ax.plot([px], [ty], "o", color=CYAN, ms=13, alpha=a * 0.2, zorder=4)
-    cur = min(fr["t"], t1 - timedelta(seconds=1))
+    cur = d0 + timedelta(days=int(round(min(fr["x"], nd - 1))))
     ax.text(px, ty + 0.020, cur.strftime("%m-%d"), fontsize=9.5,
             color=CYAN, ha="center",
             fontweight="bold", alpha=a, zorder=5)
@@ -741,10 +825,11 @@ _DRAW = {"title": _sc_title, "overview": _sc_overview, "trend": _sc_trend,
 
 
 def _race_timeline_local(data, n, hold=12, hold_end=90):
-    """条形竞跑时间轴(video.py 版的参数化本地实现):
+    """条形竞跑时间轴(日索引, video.py 版的参数化本地实现):
     hold 开头定格帧数 / hold_end 结尾定格帧数可由场景时长与扫描占比推导."""
     tops = data["tops"]
-    t0, t1 = _time_axis(data)
+    d0, nd = _time_axis(data)
+    span = max(1, nd - 1)
     sweep = max(1, n - hold - hold_end)
     top_y, bot_y = 0.80, 0.185
     step = (top_y - bot_y) / len(tops)
@@ -752,9 +837,9 @@ def _race_timeline_local(data, n, hold=12, hold_end=90):
     for i in range(n):
         p = 0.0 if i < hold else (1.0 if i >= n - hold_end
                                   else (i - hold) / sweep)
-        t = t0 + (t1 - t0) * p
-        vals = sorted(((it, _interp_value(it["pts"], t)) for it in tops),
-                      key=lambda x: -x[1])
+        x = span * p
+        vals = sorted(((it, _interp_x(it["pdx"], x)) for it in tops),
+                      key=lambda kv: -kv[1])
         target = {it["bvid"]: top_y - (rank + 0.5) * step
                   for rank, (it, _) in enumerate(vals)}
         if ys is None:
@@ -762,7 +847,7 @@ def _race_timeline_local(data, n, hold=12, hold_end=90):
         else:
             for k in ys:
                 ys[k] += (target[k] - ys[k]) * 0.28
-        frames.append({"t": t, "vals": vals, "ys": dict(ys)})
+        frames.append({"x": x, "vals": vals, "ys": dict(ys)})
     return frames
 
 
@@ -792,6 +877,10 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
         raise SystemExit("该时段没有可用快照数据, 无法生成视频")
 
     data["_o"] = {"scenes": scenes_o}
+    d0, nd = _time_axis(data)
+    _attach_pdx(data.get("trend_all") or [], d0)
+    _attach_pdx(data.get("tops") or [], d0)
+    _attach_pdx(data.get("trend") or [], d0)
     t_title = ((scenes_o.get("title") or {}).get("title")
                or opts.get("title") or "B站官号数据变化报告")
     t_sub = ((scenes_o.get("title") or {}).get("subtitle")
