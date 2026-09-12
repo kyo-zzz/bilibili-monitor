@@ -8,6 +8,7 @@
 import logging
 import math
 import os
+import subprocess
 from datetime import datetime, timedelta
 
 import matplotlib
@@ -455,7 +456,7 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
                     linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
     pad = data.get("_pads", {}).get(sc, max(6, int(n * 0.25)))
-    sweep = span * min(1.0, i / max(1, n - pad))     # 扫描位置(日索引)
+    sweep = span * _ease(min(1.0, i / max(1, n - pad)))   # 先快后慢缓动
     for it in trend:
         pdx = it["pdx"]
         xs, ys = [], []
@@ -566,7 +567,7 @@ def _side_timeline_d(trend, span, n_frames, lo, hi, y0, y1, val_fn,
     frames, ys = [], None
     denom = max(1, n_frames - side_pad)   # 分母按帧数(与扫描线同步), 末端定格
     for i in range(n_frames):
-        x = span * min(1.0, i / denom)
+        x = span * _ease(min(1.0, i / denom))   # 与折线扫描同缓动
         vals = {it["bvid"]: val_fn(it, x) for it in trend}
         targets = {b: y0 + (y1 - y0) * (max(0.0, v) - lo) / ((hi - lo) or 1)
                    for b, v in vals.items()}
@@ -644,7 +645,7 @@ def _sc_gains_games(fig, i, n, data):
                 linestyle=(0, (4, 4)), alpha=a, zorder=2)
 
     pad = data.get("_pads", {}).get("gains_games", max(6, int(n * 0.25)))
-    sweep = span * min(1.0, i / max(1, n - pad))
+    sweep = span * _ease(min(1.0, i / max(1, n - pad)))
     for g in acc_gains:
         pts = [(x, v) for x, v in g["pts"] if x <= sweep]
         if not pts:
@@ -844,7 +845,7 @@ def _race_timeline_local(data, n, hold=12, hold_end=90):
     for i in range(n):
         p = 0.0 if i < hold else (1.0 if i >= n - hold_end
                                   else (i - hold) / sweep)
-        x = span * p
+        x = span * _ease(p)                      # 竞跑推进同样先快后慢
         vals = sorted(((it, _interp_x(it["pdx"], x)) for it in tops),
                       key=lambda kv: -kv[1])
         target = {it["bvid"]: top_y - (rank + 0.5) * step
@@ -914,11 +915,37 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
     fig = plt.figure(figsize=(1920 / dpi, 1080 / dpi), dpi=dpi)
     fig.patch.set_facecolor(BG1)
 
-    bounds, acc = [], 0
-    pads = {}
-    for name, dur in SCENES_FLUID:
-        dur = float(scene_seconds.get(name, dur))
-        nf = max(1, int(dur * fps)) if dur > 0 else 0
+    bgm_path = str(opts.get("bgm") or "").strip()
+    if bgm_path and not os.path.exists(bgm_path):
+        log.warning("BGM 文件不存在, 忽略: %s", bgm_path)
+        bgm_path = None
+    weights = [float(scene_seconds.get(n, d)) for n, d in SCENES_FLUID]
+    beat_bounds = None
+    if bgm_path:
+        try:
+            from . import bgm as bgmmod
+            info = bgmmod.analyze(bgm_path)
+            dur_bgm = float(info.get("duration") or 0)
+            if dur_bgm >= 20:
+                beat_bounds = bgmmod.scene_bounds(info.get("beats") or [],
+                                                  weights, dur_bgm)
+                log.info("BGM 踩点: 分镜边界吸附节拍 → %s",
+                         [round(b, 2) for b in beat_bounds])
+            else:
+                log.warning("BGM 短于 20s, 仅合成音频不做踩点")
+        except Exception:
+            log.exception("BGM 节拍分析失败, 改用默认分镜时长")
+
+    bounds, acc, pads = [], 0, {}
+    starts_f = ([int(round(b * fps)) for b in beat_bounds]
+                if beat_bounds else None)
+    for idx, (name, dur) in enumerate(SCENES_FLUID):
+        if starts_f:
+            nf = (starts_f[idx + 1] - starts_f[idx]) if idx + 1 < len(starts_f)                 else (starts_f[-1] - starts_f[idx])
+            nf = max(1, nf)
+        else:
+            nf_def = max(1, int(float(scene_seconds.get(name, dur)) * fps))                 if dur > 0 else 0
+            nf = nf_def
         pads[name] = max(6, int(nf * (1 - sweep_frac)))
         bounds.append((name, acc, nf))
         acc += nf
@@ -952,5 +979,25 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
              total, fps, dict(scene_seconds), sweep_frac, out_path)
     anim.save(out_path, writer=writer)
     plt.close(fig)
+    if bgm_path:
+        try:
+            import imageio_ffmpeg
+            ff = imageio_ffmpeg.get_ffmpeg_exe()
+            dur_s = total / float(fps)
+            fade_st = max(0.0, dur_s - 1.2)
+            mux = out_path + ".mux.mp4"
+            cmd = [ff, "-y", "-i", out_path, "-i", bgm_path,
+                   "-map", "0:v:0", "-map", "1:a:0",
+                   "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                   "-af", f"afade=t=out:st={fade_st:.2f}:d=1.2",
+                   "-shortest", mux]
+            subprocess.run(cmd, capture_output=True)
+            if os.path.exists(mux) and os.path.getsize(mux) > 0:
+                os.replace(mux, out_path)
+                log.info("BGM 已合成: %s", os.path.basename(bgm_path))
+            else:
+                log.warning("BGM 合成失败, 视频保持无声")
+        except Exception:
+            log.exception("BGM 合成异常, 视频保持无声")
     log.info("视频已生成: %s", out_path)
     return os.path.abspath(out_path)

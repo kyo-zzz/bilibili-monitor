@@ -37,6 +37,11 @@
         <option value="fluid" selected>流体几何 · 平设浅色</option>
         <option value="classic">经典 · 深色版</option>
       </select>
+      <span class="dim">BGM</span>
+      <select name="bgm">
+        <option value="">无</option>
+        {% for b in bgm_files %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+      </select>
       <span class="dim">帧率</span>
       <select name="fps">
         <option value="24">24 fps</option>

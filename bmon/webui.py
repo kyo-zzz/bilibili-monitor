@@ -405,8 +405,16 @@ def create_app(cfg):
         vids.sort(key=lambda v: v["mtime"], reverse=True)
         running = bool(_procs.get("video") and
                        _procs["video"].poll() is None)
+        bgm_dir = str(((cfg.get("video") or {}).get("bgm_dir")) or "bgm")
+        bgm_dir = bgm_dir if os.path.isabs(bgm_dir) else os.path.join(cfgmod.ROOT, bgm_dir)
+        bgm_files = []
+        if os.path.isdir(bgm_dir):
+            for fn in sorted(os.listdir(bgm_dir)):
+                if fn.lower().endswith((".mp3", ".wav", ".flac", ".m4a", ".ogg")):
+                    bgm_files.append(fn)
         return render_template("video.html", vids=vids, running=running,
                                accounts=cfg.get("accounts") or [],
+                               bgm_files=bgm_files,
                                err=request.args.get("err"))
 
     @app.route("/video/run", methods=["POST"])
@@ -460,9 +468,17 @@ def create_app(cfg):
                 scenes[sc] = conf
         mids = [int(m) for m in request.form.getlist("mid")
                 if str(m).strip().isdigit()]
+        bgm_sel = (request.form.get("bgm") or "").strip()
+        bgm_dir = str(((cfg.get("video") or {}).get("bgm_dir")) or "bgm")
+        bgm_dir = bgm_dir if os.path.isabs(bgm_dir) else os.path.join(cfgmod.ROOT, bgm_dir)
+        bgm_path = None
+        if bgm_sel:
+            cand = os.path.join(bgm_dir, os.path.basename(bgm_sel))
+            if os.path.exists(cand):
+                bgm_path = cand
         opts = {"sweep_frac": _num("sweep_frac"), "scenes": scenes,
                 "fps": fps, "style": request.form.get("style") or "fluid",
-                "mids": mids}
+                "mids": mids, "bgm": bgm_path}
         mode = request.form.get("mode", "all")
         opts["mode"] = mode
         if mode == "days":

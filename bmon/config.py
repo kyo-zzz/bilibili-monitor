@@ -37,7 +37,7 @@ DEFAULTS = {
         "interpolate": True,
     },
     "logging": {"level": "INFO", "file": "data/monitor.log"},
-    "video": {"style": "fluid", "fps": 30},
+    "video": {"style": "fluid", "fps": 30, "bgm_dir": "bgm"},
 }
 
 CONFIG_TEMPLATE = """\
@@ -104,6 +104,7 @@ logging:
 video:
   style: fluid                    # 视频视觉风格: fluid=流体几何平设(浅色) / classic=经典深色
   fps: 30
+  bgm_dir: bgm                    # BGM 音频库目录(放入音频文件即可在 GUI 中选择合成)
 """
 
 

@@ -304,6 +304,9 @@ def cmd_video(args):
         mids = [int(m) for m in str(raw_mids).replace("，", ",").split(",")
                 if m.strip().lstrip("-").isdigit()]
     args.mids = mids
+    if args.bgm is None and file_opts.get("bgm"):
+        cand = str(file_opts["bgm"])
+        args.bgm = cand if os.path.isabs(cand) else os.path.join(cfgmod.ROOT, cand)
     style = (args.style or (cfg.get("video") or {}).get("style") or "fluid").lower()
     if style == "classic":
         if args.scene or args.sweep_frac or args.trend_top or \
@@ -324,6 +327,7 @@ def cmd_video(args):
                                  f"gains_videos/gains_recent/gains_games/bars/end)")
         opts = {
             "mids": mids or [],
+            "bgm": args.bgm,
             "scene_seconds": scene_seconds,
             "sweep_frac": args.sweep_frac if args.sweep_frac is not None
                           else file_opts.get("sweep_frac"),
@@ -433,6 +437,7 @@ def build_parser():
     pv.add_argument("--vsubtitle", default=None, help="片头副标题文案(仅fluid)")
     pv.add_argument("--mids", default=None, metavar="MID[,MID...]",
                     help="仅基于指定账号(mid, 逗号分隔)的数据生成视频(账号对比)")
+    pv.add_argument("--bgm", default=None, help="BGM 音频文件路径(合成进视频并踩点)")
     pv.add_argument("--opts-file", default=None,
                     help="JSON 参数文件(GUI 折叠面板生成), 可含 style/fps/mode/"
                          "days/from/to/sweep_frac/scenes{每幕参数}, 优先级低于同名 CLI")

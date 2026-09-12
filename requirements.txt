@@ -5,3 +5,4 @@ curl_cffi>=0.16
 typing_extensions>=4.8
 Flask>=3.0
 imageio-ffmpeg>=0.5
+librosa>=0.10

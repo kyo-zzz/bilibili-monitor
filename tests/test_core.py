@@ -213,6 +213,16 @@ def test_recent_filter_caps_to_top_n():
     assert out[0]["end"] == 1000 and out[-1]["end"] == 991   # 按期末播放降序取前十
 
 
+def test_bgm_scene_bounds_snap_to_beats():
+    from bmon.bgm import scene_bounds
+    beats = [float(i) for i in range(1, 33)]          # 1..32s 每秒一拍
+    b = scene_bounds(beats, [3] * 8, 32.0, min_scene=2.0)
+    assert b[0] == 0 and b[-1] == 32
+    assert all(b[i] < b[i + 1] for i in range(len(b) - 1))   # 单调(每幕>=2s)
+    for x in b[1:-1]:                                 # 内部边界全部吸附到节拍
+        assert any(abs(x - t) < 1e-6 for t in beats)
+
+
 def test_recent_filter_fallback():
     from bmon.video_fluid import _recent_filter
     t0, t1 = _dt(2026, 9, 4, 21, 30), _dt(2026, 9, 11, 21, 30)
