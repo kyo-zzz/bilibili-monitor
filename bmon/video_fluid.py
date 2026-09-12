@@ -398,7 +398,7 @@ def _trend_like(fig, i, n, data, kind, trend_items=None, scene=None,
     a = _fade(i, n)
     _bg(ax, i / 10)
     sc = scene or ("trend" if kind == "view" else "gains_videos")
-    top_n = max(1, int(_o(data, sc, "top", 8)))
+    top_n = max(1, int(_o(data, sc, "top", 10)))
     pool = trend_items if trend_items is not None else data["trend"]
     trend = pool[:top_n]
     line_w = float(_o(data, sc, "line_width", 2.6))
@@ -677,13 +677,20 @@ def _sc_bars(fig, i, n, data):
     ax = _full_ax(fig)
     a = _fade(i, n)
     _bg(ax, i / 10)
-    _header(ax, i, n, "BAR RACE", "播放量竞跑 Top10",
-            "条形长度 = 当前播放量 · 条尾为期内新增", _period(data), accent=GOLD)
     race_top = max(1, int(_o(data, "bars", "top", 10)))
     thr = float(_o(data, "bars", "truncate_thr", 0.45))
     bar_h = float(_o(data, "bars", "bar_h", 0.56))
-    data["tops"] = data["tops"][:race_top]
+    # 竞跑同样只看近期发布的视频: 跨度×2内按当前播放量取前十,
+    # 不足 race_top 个则回溯收录最近发布的视频补满
+    rt0 = datetime.strptime(data["ts_from"], TSFMT)
+    rt1 = datetime.strptime(data["ts_to"], TSFMT)
+    tops_pool, _, _ = _recent_filter(data.get("trend_all") or [], rt0, rt1,
+                                     top_n=race_top, mult=2.0)
+    data["tops"] = tops_pool
     tops = data["tops"]
+    _header(ax, i, n, "BAR RACE", "播放量竞跑 Top%d" % len(tops),
+            "近期发布视频 · 条形长度 = 当前播放量 · 条尾为期内新增",
+            _period(data), accent=GOLD)
     if not tops:
         ax.text(0.5, 0.45, "本期暂无增量数据", fontsize=19, color=DIM,
                 ha="center", alpha=a)
@@ -869,10 +876,16 @@ def make_video(db, cfg, ts_from, ts_to, out_path=None, fps=30, opts=None):
     opts = opts or {}
     scenes_o = dict(opts.get("scenes") or {})
     # 池子取各幕收录数上限, 供各幕自行精选
-    pool_t = max(8, int((scenes_o.get("trend") or {}).get("top") or 8),
-                 int((scenes_o.get("gains_videos") or {}).get("top") or 8))
+    pool_t = max(10, int((scenes_o.get("trend") or {}).get("top") or 10),
+                 int((scenes_o.get("gains_videos") or {}).get("top") or 10),
+                 int((scenes_o.get("gains_recent") or {}).get("top") or 10))
     pool_r = max(10, int((scenes_o.get("bars") or {}).get("top") or 10))
-    data = collect(db, cfg, ts_from, ts_to, trend_pool=pool_t, tops_pool=pool_r)
+    only = [int(m) for m in (opts.get("mids") or [])
+            if str(m).strip().lstrip("-").isdigit()]
+    data = collect(db, cfg, ts_from, ts_to, trend_pool=pool_t, tops_pool=pool_r,
+                   only_mids=only or None)
+    if only:
+        log.info("账号对比模式: 仅基于 %s 的数据生成", only)
     if not data["trend"] and not data["tops"]:
         raise SystemExit("该时段没有可用快照数据, 无法生成视频")
 

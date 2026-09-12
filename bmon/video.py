@@ -104,12 +104,15 @@ def _interp_value(pts, t):
     return pts[-1][1]
 
 
-def collect(db, cfg, ts_from, ts_to, trend_pool=8, tops_pool=10):
+def collect(db, cfg, ts_from, ts_to, trend_pool=10, tops_pool=10, only_mids=None):
     """汇总视频: 趋势序列 / 增量Top / 总览数字 / 分游戏明细.
 
-    trend_pool/tops_pool: 池子上限(后续按展示参数再精选); classic 默认 8/10 不变.
+    trend_pool/tops_pool: 池子上限(后续按展示参数再精选);
+    only_mids: 仅保留指定账号的视频(账号对比功能), None=全部.
     """
     rows = db.videos_with_stats()
+    if only_mids:
+        rows = [r for r in rows if r.get("mid") in only_mids]
     meta = {r["bvid"]: r for r in rows}
     ordered, labels, colors = account_style(cfg, rows)
 

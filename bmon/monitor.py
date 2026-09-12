@@ -242,7 +242,7 @@ class Monitor:
                 "full_sweep": sweep_all}
 
     # ---------- 周期 ----------
-    def run_once(self, full=False):
+    def run_once(self, full=False, only_mid=None):
         """跨进程互斥: 计划任务/GUI调度器/手动CLI 并存时, 同一时刻只跑一轮."""
         lock_path = os.path.join(
             os.path.dirname(self.cfg["storage"]["db_path"]), "fetch.lock")
@@ -250,13 +250,13 @@ class Monitor:
             log.warning("另一采集进程正在运行(fetch.lock), 本轮跳过")
             return []
         try:
-            return self._run_once_locked(full)
+            return self._run_once_locked(full, only_mid=only_mid)
         finally:
             lockmod.release(lock_path)
 
-    def _run_once_locked(self, full=False):
+    def _run_once_locked(self, full=False, only_mid=None):
         now = datetime.now()
-        accs = enabled_accounts(self.cfg)
+        accs = enabled_accounts(self.cfg, only_mid=only_mid)
         if not accs:
             log.warning("config.yaml 中没有启用的账号, 跳过本轮")
             return []
@@ -280,6 +280,24 @@ class Monitor:
                           acc.get("name"), traceback.format_exc())
         self._auto_charts()
         self._write_state(now, results)
+        # 记录本轮完全失败的账号(供调度器稍后自动重试)
+        failed = [a.get("mid") for a in accs
+                  if a.get("mid") and not any(r.get("mid") == a["mid"]
+                                              for r in results)]
+        state_path = os.path.join(os.path.dirname(self.cfg["storage"]["db_path"]),
+                                  "state.json")
+        try:
+            with open(state_path, encoding="utf-8") as f:
+                st = json.load(f)
+            st["failed_mids"] = failed
+            st.setdefault("last_cycle_at", now.strftime("%Y-%m-%d %H:%M:%S"))
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(st, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            log.debug("写入 failed_mids 失败: %s", e)
+        if failed:
+            log.warning("以下账号本轮未采集到数据, 稍后将自动重试: %s",
+                        ",".join(str(m) for m in failed))
         v_after = self.db.con.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
         s_after = self.db.snapshot_count()
         detail = " · ".join(f"{r['label']}: 快照{r['snapshots']}条"

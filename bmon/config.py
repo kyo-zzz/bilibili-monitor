@@ -58,6 +58,9 @@ accounts:
   - mid: 1636034895         # 绝区零 (官方, 已核验)
     name: 绝区零
     enabled: true
+  - mid: 3546622923377024   # 星布谷地 (官方, 已核验, 95.3万粉)
+    name: 星布谷地
+    enabled: true
   # 仅监测指定视频(手动模式, 可选):
   # - mid: 123456
   #   name: 某账号
@@ -132,13 +135,16 @@ def load_config(path):
     return cfg
 
 
-def enabled_accounts(cfg):
-    """返回启用且填写了 mid 的账号列表."""
+def enabled_accounts(cfg, only_mid=None):
+    """返回启用且填写了 mid 的账号列表; only_mid 非空时仅保留指定 mid."""
+    only = {int(m) for m in only_mid or [] if str(m).strip().isdigit()}
     out = []
     for a in cfg.get("accounts") or []:
         if not a.get("enabled", True):
             continue
         if not a.get("mid"):
+            continue
+        if only and int(a["mid"]) not in only:
             continue
         out.append(a)
     return out

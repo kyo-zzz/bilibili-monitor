@@ -46,6 +46,12 @@
       <button class="btn primary" type="submit" {{ 'disabled' if running }}>
         {{ '渲染中, 请稍候…' if running else '开始生成' }}</button>
     </div>
+    <div class="form-sec">对比账号 <span class="dim">(不选 = 全部账号; 视频将仅基于所选账号的数据生成)</span></div>
+    <div class="sched-row">
+      {% for a in accounts %}{% if a.get('mid') %}
+      <label class="chk"><input type="checkbox" name="mid" value="{{ a['mid'] }}">{{ a['name'] }}</label>
+      {% endif %}{% endfor %}
+    </div>
     <div class="form-sec">场景与动效 <span class="dim">(以下仅「流体几何」风格生效, 点击各模块展开编辑; 留空即用默认)</span></div>
     <div class="sched-row">
       <span class="dim">动画推进占比</span>
@@ -81,7 +87,7 @@
       <summary>播放走势 <span class="dim">Top N · 线宽 · 快照点 · 纵轴下缓冲 · 标签折行</span></summary>
       <div class="scene-grid">
         <label>时长秒<input type="number" name="sc_trend_dur" value="" min="0" max="30" step="0.5" placeholder="10"></label>
-        <label>收录 Top<input type="number" name="sc_trend_top" value="" min="1" max="15" placeholder="8"></label>
+        <label>收录 Top<input type="number" name="sc_trend_top" value="" min="1" max="15" placeholder="10"></label>
         <label>线宽<input type="number" name="sc_trend_line_width" value="" min="1" max="5" step="0.2" placeholder="2.6"></label>
         <label>纵轴下缓冲<input type="number" name="sc_trend_axis_pad" value="" min="0" max="0.4" step="0.02" placeholder="0.12"></label>
         <label>标签折行宽<input type="number" name="sc_trend_label_width" value="" min="14" max="36" placeholder="24"></label>
@@ -93,7 +99,7 @@
       <summary>净增量 · 视频 <span class="dim">Top N · 线宽 · 零基线开关</span></summary>
       <div class="scene-grid">
         <label>时长秒<input type="number" name="sc_gains_videos_dur" value="" min="0" max="30" step="0.5" placeholder="9"></label>
-        <label>收录 Top<input type="number" name="sc_gains_videos_top" value="" min="1" max="15" placeholder="8"></label>
+        <label>收录 Top<input type="number" name="sc_gains_videos_top" value="" min="1" max="15" placeholder="10"></label>
         <label>线宽<input type="number" name="sc_gains_videos_line_width" value="" min="1" max="5" step="0.2" placeholder="2.6"></label>
         <label>标签折行宽<input type="number" name="sc_gains_videos_label_width" value="" min="14" max="36" placeholder="24"></label>
         <label class="chk" style="margin-top:16px"><input type="checkbox" name="sc_gains_videos_zero_base" value="1" checked>纵轴从零起</label>
@@ -104,7 +110,7 @@
       <summary>净增量 · 近期视频 <span class="dim">仅收录发布于 数据跨度×2 内的视频 · Top N · 线宽</span></summary>
       <div class="scene-grid">
         <label>时长秒<input type="number" name="sc_gains_recent_dur" value="" min="0" max="30" step="0.5" placeholder="8"></label>
-        <label>收录 Top<input type="number" name="sc_gains_recent_top" value="" min="1" max="15" placeholder="8"></label>
+        <label>收录 Top<input type="number" name="sc_gains_recent_top" value="" min="1" max="15" placeholder="10"></label>
         <label>线宽<input type="number" name="sc_gains_recent_line_width" value="" min="1" max="5" step="0.2" placeholder="2.6"></label>
         <label>标签折行宽<input type="number" name="sc_gains_recent_label_width" value="" min="14" max="36" placeholder="24"></label>
       </div>

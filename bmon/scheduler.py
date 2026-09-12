@@ -195,6 +195,33 @@ class Scheduler:
             return
         if self.last_run and (now - self.last_run).total_seconds() < MIN_GAP_SECONDS:
             return
+        # 失败账号自动重试: 上轮有账号完全失败且已过 10 分钟 → 仅重试这些账号
+        state0 = _load_state(self.cfg)
+        failed = state0.get("failed_mids") or []
+        last0 = state0.get("last_cycle_at")
+        if failed and last0:
+            try:
+                last_dt = datetime.strptime(last0, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last_dt = None
+            if last_dt and (now - last_dt).total_seconds() >= 600:
+                log.warning("检测到失败账号 %s, 自动重试(仅这些账号)",
+                            ",".join(map(str, failed)))
+                os.makedirs(_data_dir(self.cfg), exist_ok=True)
+                logf = open(os.path.join(_data_dir(self.cfg), "scheduled.log"), "ab")
+                cmd = [sys.executable, self.main_py, "fetch",
+                       "--only-mid"] + [str(m) for m in failed]
+                try:
+                    subprocess.Popen(cmd, cwd=os.path.dirname(
+                        os.path.abspath(self.main_py)),
+                        stdout=logf, stderr=subprocess.STDOUT)
+                    state0["failed_mids"] = []
+                    _save_state(self.cfg, state0)
+                    self.last_run = now
+                    self.last_reason = "失败账号自动重试"
+                except Exception:
+                    log.exception("启动失败账号重试子进程失败")
+                return
         sch = load_schedule(self.cfg)
         state = _load_state(self.cfg)
         reason = None

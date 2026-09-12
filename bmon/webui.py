@@ -406,6 +406,7 @@ def create_app(cfg):
         running = bool(_procs.get("video") and
                        _procs["video"].poll() is None)
         return render_template("video.html", vids=vids, running=running,
+                               accounts=cfg.get("accounts") or [],
                                err=request.args.get("err"))
 
     @app.route("/video/run", methods=["POST"])
@@ -457,8 +458,11 @@ def create_app(cfg):
                 conf[k] = v if k in texts else _num(f"sc_{sc}_{k}")
             if conf:
                 scenes[sc] = conf
+        mids = [int(m) for m in request.form.getlist("mid")
+                if str(m).strip().isdigit()]
         opts = {"sweep_frac": _num("sweep_frac"), "scenes": scenes,
-                "fps": fps, "style": request.form.get("style") or "fluid"}
+                "fps": fps, "style": request.form.get("style") or "fluid",
+                "mids": mids}
         mode = request.form.get("mode", "all")
         opts["mode"] = mode
         if mode == "days":

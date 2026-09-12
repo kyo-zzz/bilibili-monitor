@@ -112,7 +112,7 @@ def cmd_fetch(args):
     cfg = cfgmod.load_config(args.config)
     setup_logging(cfg)
     from bmon.monitor import Monitor
-    Monitor(cfg).run_once(full=args.full)
+    Monitor(cfg).run_once(full=args.full, only_mid=args.only_mid)
 
 
 def cmd_run(args):
@@ -297,6 +297,13 @@ def cmd_video(args):
             ts_from = row[0]                       # 默认: 全部快照历史
     if ts_from >= ts_to:
         raise SystemExit("--from 必须早于 --to")
+    # 账号对比: CLI --mids 优先, 其次 opts-file 的 mids
+    mids = None
+    raw_mids = args.mids or ",".join(str(m) for m in (file_opts.get("mids") or []))
+    if raw_mids:
+        mids = [int(m) for m in str(raw_mids).replace("，", ",").split(",")
+                if m.strip().lstrip("-").isdigit()]
+    args.mids = mids
     style = (args.style or (cfg.get("video") or {}).get("style") or "fluid").lower()
     if style == "classic":
         if args.scene or args.sweep_frac or args.trend_top or \
@@ -316,6 +323,7 @@ def cmd_video(args):
                                  f"如 bars=12; 可用: title/overview/trend/"
                                  f"gains_videos/gains_recent/gains_games/bars/end)")
         opts = {
+            "mids": mids or [],
             "scene_seconds": scene_seconds,
             "sweep_frac": args.sweep_frac if args.sweep_frac is not None
                           else file_opts.get("sweep_frac"),
@@ -353,6 +361,8 @@ def build_parser():
     pfe = sub.add_parser("fetch", help="执行一轮采集")
     pfe.add_argument("--full", action="store_true",
                      help="强制全量翻页回填(忽略增量优化)")
+    pfe.add_argument("--only-mid", action="append", metavar="MID",
+                     help="仅采集指定账号(可多次, 用于失败账号自动重试)")
     pfe.set_defaults(func=cmd_fetch)
 
     pr = sub.add_parser("run", help="持续自动监测(循环采集+自动图表)")
@@ -421,6 +431,8 @@ def build_parser():
                     help="播放量竞跑收录视频数(仅fluid, 默认10)")
     pv.add_argument("--vtitle", default=None, help="片头主标题文案(仅fluid)")
     pv.add_argument("--vsubtitle", default=None, help="片头副标题文案(仅fluid)")
+    pv.add_argument("--mids", default=None, metavar="MID[,MID...]",
+                    help="仅基于指定账号(mid, 逗号分隔)的数据生成视频(账号对比)")
     pv.add_argument("--opts-file", default=None,
                     help="JSON 参数文件(GUI 折叠面板生成), 可含 style/fps/mode/"
                          "days/from/to/sweep_frac/scenes{每幕参数}, 优先级低于同名 CLI")
