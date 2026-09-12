@@ -564,7 +564,7 @@ def _side_timeline_d(trend, span, n_frames, lo, hi, y0, y1, val_fn,
     floor = y0 + 0.01
     ceil = y1 - 0.01
     frames, ys = [], None
-    denom = max(1, span - side_pad)
+    denom = max(1, n_frames - side_pad)   # 分母按帧数(与扫描线同步), 末端定格
     for i in range(n_frames):
         x = span * min(1.0, i / denom)
         vals = {it["bvid"]: val_fn(it, x) for it in trend}
